@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bluetooth, Check, ChevronRight, Cpu, Download, FileCode2, FolderGit2, RotateCcw, ShieldAlert, TriangleAlert, Usb, Zap,
 } from 'lucide-react'
@@ -224,14 +224,30 @@ function InstallPanel({ board, pack, label, recover }: { board: Board; pack: str
         </div>
       )}
       {error && <Note tone="bad">{error}</Note>}
-      {log.length > 0 && (
-        <details className="mt-3 text-xs">
-          <summary className="cursor-pointer text-ink-400">Log</summary>
-          <pre className="mt-2 max-h-48 overflow-auto rounded bg-ink-950 p-2 font-mono text-ink-400">{log.join('\n')}</pre>
-        </details>
-      )}
+      {log.length > 0 && <Log lines={log} />}
       <p className="mt-4 text-xs text-ink-400">If the board is not listed: hold BOOT, tap RESET, let go of BOOT, then try again.</p>
     </div>
+  )
+}
+
+/** The esptool log: opens by itself and follows the tail, unless you scroll up to read. */
+function Log({ lines }: { lines: string[] }) {
+  const [open, setOpen] = useState(true)
+  const pre = useRef<HTMLPreElement>(null)
+  const follow = useRef(true)
+  useEffect(() => {
+    const el = pre.current
+    if (el && follow.current) el.scrollTop = el.scrollHeight
+  }, [lines, open])
+  return (
+    <details open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)} className="mt-3 text-xs">
+      <summary className="cursor-pointer text-ink-400">Log · {lines.length} lines</summary>
+      <pre
+        ref={pre}
+        onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24 }}
+        className="mt-2 max-h-48 overflow-auto rounded bg-ink-950 p-2 font-mono text-ink-400"
+      >{lines.join('\n')}</pre>
+    </details>
   )
 }
 

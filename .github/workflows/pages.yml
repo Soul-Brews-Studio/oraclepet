@@ -35,13 +35,22 @@ jobs:
       IDF_COMPONENT_CACHE_PATH: ${{ github.workspace }}/.cache/idf-components
     steps:
       - uses: actions/checkout@v4
+      # The key is computed once, from git's blob hashes of the tracked sources. hashFiles()
+      # would be evaluated again when the cache is saved, after the build has filled build/
+      # and managed_components/ with thousands of files, and it fails there.
+      - name: Firmware source hash
+        id: src
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "hash=$(git ls-files -s lab/jc3248-pet-idf lab/ota-base lab/buddy/characters tools/site/build-firmware.sh | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
       # 1. Nothing the firmware is built from changed: reuse the last dist/ as is.
       - name: Firmware cache
         id: fw
         uses: actions/cache@v4
         with:
           path: dist/
-          key: fw-v6.0.3-${{ hashFiles('lab/jc3248-pet-idf/**', 'lab/ota-base/**', 'lab/buddy/characters/**', 'tools/site/build-firmware.sh') }}
+          key: fw-v6.0.3-${{ steps.src.outputs.hash }}
       # 2. Something changed: rebuild, but with compiler and component caches.
       - name: Compiler and component cache
         if: steps.fw.outputs.cache-hit != 'true'
@@ -54,7 +63,6 @@ jobs:
         if: steps.fw.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . "$IDF_PATH/export.sh"
           tools/site/build-firmware.sh
           ccache -s || true
