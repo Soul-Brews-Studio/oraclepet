@@ -87,6 +87,20 @@
     </div>
   </section>
 
+  <section class="card wide" id="sitecard" hidden>
+    <h2>From this site</h2>
+    <p class="note">The builds published with this page: one click sends them to the connected pet. Firmware is
+      checked against the pet's board first; a pet running the OTA base takes any of them.</p>
+    <div class="stack">
+      <div><b>Firmware</b> <span id="sitefwnote" class="note"></span></div>
+      <div id="sitefw" class="packs"></div>
+      <div><b>Characters</b> <span class="note">· installed without a restart, then shown</span></div>
+      <div id="sitepacks" class="packs"></div>
+      <div><b>Apps</b> <span class="note">· WebAssembly, run after they land</span></div>
+      <div id="siteapps" class="packs"></div>
+    </div>
+  </section>
+
   <section class="card">
     <h2>Firmware</h2>
     <div class="stack">
@@ -322,6 +336,7 @@ function render() {
   for (const id of ['selftest', 'listen']) $(id).disabled = !canSend();
   $('hbsend').disabled = !on;
   $('sendapp').disabled = !canSend() || !$('wasmfile').files[0];
+  renderSite();
   $('backtopet').disabled = !canSend() || !recording?.pcm;
   renderFirmware();
   renderPacks();
@@ -439,6 +454,88 @@ $('wasmfile').onchange = () => {
 };
 
 $('sendapp').onclick = () => act(pet.app($('wasmfile').files[0], $('runapp').checked));
+
+// ---- from this site (the web flasher's firmware/index.json, when the page is served beside it) ----
+
+let site = null;
+const SITE = new URL('../', location.href);
+
+async function loadSite() {
+  try {
+    const r = await fetch(new URL('firmware/index.json', SITE), { cache: 'no-cache' });
+    if (!r.ok) return;
+    site = await r.json();
+  } catch {
+    return;
+  }
+  $('sitecard').hidden = false;
+  renderSite();
+}
+
+async function fetchBytes(path) {
+  const r = await fetch(new URL(path, SITE));
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return new Uint8Array(await r.arrayBuffer());
+}
+
+function siteButton(label, title, onclick) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.title = title;
+  b.disabled = !canSend();
+  b.onclick = onclick;
+  return b;
+}
+
+function renderSite() {
+  if (!site) return;
+  const project = pet?.info?.project;
+  const base = project === op.BASE_PROJECT;
+  // the boards this pet can take: its own; every pet board when it runs the base
+  const boards = site.boards.filter((b) => !b.base && (base || !project || b.project === project));
+  $('sitefwnote').textContent = !pet?.info ? '· connect a pet to see the firmware for its board'
+    : base ? '· this pet runs the OTA base: any board\'s firmware' : `· for ${op.boardName(project)}`;
+  const fw = $('sitefw');
+  fw.replaceChildren();
+  if (pet?.info) {
+    for (const b of boards) {
+      for (const [packId, part] of Object.entries(b.app.files)) {
+        fw.append(siteButton(`${b.name} · ${packId}`, `${part.file}, ${Math.round(part.bytes / 1024)} KB`, async () => {
+          log(`downloading ${b.id}/${part.file}`);
+          const data = await fetchBytes(`firmware/${b.id}/${part.file}`);
+          useFirmware(`${b.id}/${part.file}`, data);
+          act(pet.ota(data));
+        }));
+      }
+    }
+  }
+  const pk = $('sitepacks');
+  pk.replaceChildren();
+  for (const p of site.packs) {
+    const b = siteButton(p.id, `${p.files.length} files, ${Math.round(p.bytes / 1024)} KB`, async () => {
+      log(`downloading pack ${p.id} (${p.files.length} files)`);
+      const files = await Promise.all(p.files.map(async (f) => Object.assign(new File([await fetchBytes(`characters/${p.id}/${f}`)], f), { relativePath: `${p.id}/${f}` })));
+      const [pack] = op.packsFromFiles(files);
+      act(pet.pack(pack));
+    });
+    const img = document.createElement('img');
+    img.src = new URL(p.image, SITE).href;
+    img.alt = '';
+    img.style.cssText = 'width:20px;height:20px;image-rendering:pixelated;vertical-align:-5px;margin-right:6px';
+    b.prepend(img);
+    pk.append(b);
+  }
+  const ap = $('siteapps');
+  ap.replaceChildren();
+  for (const a of site.apps ?? []) {
+    ap.append(siteButton(a, `apps/${a}.wasm`, async () => {
+      const data = await fetchBytes(`apps/${a}.wasm`);
+      act(pet.app({ name: `${a}.wasm`, data }, true));
+    }));
+  }
+}
+
+loadSite();
 
 // ---- sound -----------------------------------------------------------------------------------
 

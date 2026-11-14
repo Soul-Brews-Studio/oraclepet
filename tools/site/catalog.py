@@ -78,7 +78,13 @@ for m in sorted((ROOT / "lab/buddy/characters").glob("*/manifest.json")):
         if f and (m.parent / f).exists():
             shutil.copy(m.parent / f, site / "packs" / pid / f"{state}.gif")
     lic = "see PROVENANCE.md" if (m.parent / "PROVENANCE.md").exists() else "see README.md"
-    packs.append({"id": pid, "name": data.get("name", pid), "image": f"packs/{pid}.gif", "license": lic})
+    # the pack as the pet takes it over BLE (manifest.json + GIFs), for the Bluetooth tool
+    files = sorted(f.name for f in m.parent.iterdir() if f.suffix in (".gif", ".json"))
+    (site / "characters" / pid).mkdir(parents=True, exist_ok=True)
+    for f in files:
+        shutil.copy(m.parent / f, site / "characters" / pid / f)
+    packs.append({"id": pid, "name": data.get("name", pid), "image": f"packs/{pid}.gif", "license": lic,
+                  "files": files, "bytes": sum((m.parent / f).stat().st_size for f in files)})
 
 # bufo first: it is the default and the site icon.
 packs.sort(key=lambda p: (p["id"] != "bufo", p["id"]))
