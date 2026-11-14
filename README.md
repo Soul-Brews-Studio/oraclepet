@@ -48,7 +48,7 @@ bring-up bugs in [`blog/`](blog).
 
 ## Build the firmware yourself
 
-ESP-IDF v6.0.1, target `esp32s3`:
+ESP-IDF v6.0.3, target `esp32s3`:
 
 ```sh
 cd lab/jc3248-pet-idf

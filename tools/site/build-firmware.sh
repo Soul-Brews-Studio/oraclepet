@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build every pet firmware the web flasher offers, into dist/.
-# Runs inside the espressif/idf:v6.0.1 image (see .github/workflows/pages.yml),
+# Runs inside the espressif/idf:v6.0.3 image (see .github/workflows/pages.yml),
 # or locally after `. $IDF_PATH/export.sh`.
 #
 #   dist/jc3248/{bootloader,partition-table,ota_data_initial,storage}.bin

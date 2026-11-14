@@ -16,7 +16,7 @@ concurrency:
 jobs:
   firmware:
     runs-on: ubuntu-latest
-    container: espressif/idf:v6.0.1
+    container: espressif/idf:v6.0.3
     steps:
       - uses: actions/checkout@v4
       - name: Build pet firmware (jc3248 packs, sc01, lcd28)
