@@ -38,9 +38,14 @@ cp -R "$DIST"/. "$SITE/firmware/"
 # Example pet apps for the preview and for sending over BLE (needs zig; skipped without it).
 if command -v zig >/dev/null; then
   mkdir -p "$SITE/apps"
+  # build.sh also runs an optional load check in the native WAMR (sim/petsim), which needs the
+  # firmware's managed_components and exits non-zero without them: judge by the .wasm itself.
   ( cd "$ROOT/lab/pet-sdk" && for src in examples/*.c examples/*.zig; do
-      ./build.sh "$src" >/tmp/petapp-build.log 2>&1 && cp "build/$(basename "${src%.*}").wasm" "$SITE/apps/" \
-        || { echo "skip app $src (build failed):"; tail -5 /tmp/petapp-build.log; }
+      out="build/$(basename "${src%.*}").wasm"
+      rm -f "$out"
+      ./build.sh "$src" >/tmp/petapp-build.log 2>&1 || true
+      if [ -s "$out" ]; then cp "$out" "$SITE/apps/"
+      else echo "skip app $src (no wasm):"; tail -5 /tmp/petapp-build.log; fi
     done )
 else
   echo "no zig: the preview has no example apps"
