@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #12100c;
+  --color-ink-900: #1b1812;
+  --color-ink-800: #26211a;
+  --color-ink-700: #3a3226;
+  --color-ink-400: #a89a84;
+  --color-ink-200: #d9cfbf;
+  --color-ink-50: #f4eee4;
+  --color-amber: #f0a830;
+  --color-amber-dim: #b97d1c;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.pixel { image-rendering: pixelated; }

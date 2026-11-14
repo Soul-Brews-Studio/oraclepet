@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-${{ github.ref }}-${{ inputs.firmware || 'ci' }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dist/
-          key: fw-v6.0.3-${{ hashFiles('lab/jc3248-pet-idf/**', 'lab/buddy/characters/**', 'tools/site/build-firmware.sh') }}
+          key: fw-v6.0.3-${{ hashFiles('lab/jc3248-pet-idf/**', 'lab/ota-base/**', 'lab/buddy/characters/**', 'tools/site/build-firmware.sh') }}
       # 2. Something changed: rebuild, but with compiler and component caches.
       - name: Compiler and component cache
         if: steps.fw.outputs.cache-hit != 'true'

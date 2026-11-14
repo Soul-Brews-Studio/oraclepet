@@ -1,0 +1,12 @@
+# OraclePet OTA base layout, 8 MB flash.
+# The base lives in factory and is never overwritten by OTA. Any firmware goes to ota_0 /
+# ota_1. Erasing otadata (0xd000) boots the base again. storage is the pet's 3 MB LittleFS
+# (character packs), mounted by label, so pet firmware installed over BLE finds it.
+# Name,   Type, SubType, Offset,   Size
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xd000,   0x2000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0xF0000,
+ota_0,    app,  ota_0,   0x100000, 0x200000,
+ota_1,    app,  ota_1,   0x300000, 0x200000,
+storage,  data, littlefs,0x500000, 0x300000,

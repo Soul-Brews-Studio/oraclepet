@@ -13,7 +13,11 @@ DIST="$ROOT/dist"
 SITE="$ROOT/_site"
 rm -rf "$SITE" && mkdir -p "$SITE"
 
-cp "$ROOT/tools/site/index.html" "$ROOT/tools/site/style.css" "$SITE/"
+# The home page: the React app in site/ (USB install with esptool-js, the OTA base,
+# links to the BLE tool). style.css serves the plain sub-pages below.
+( cd "$ROOT/site" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build )
+cp -R "$ROOT/site/dist/." "$SITE/"
+cp "$ROOT/tools/site/style.css" "$SITE/"
 touch "$SITE/.nojekyll"
 
 # Firmware files, served once and referenced by every manifest.
@@ -30,6 +34,9 @@ cp -R "$DIST"/. "$SITE/firmware/"
   done
   echo '</ul></main>'
 } > "$SITE/firmware/index.html"
+
+# firmware/index.json + packs/<id>.gif for the React page.
+python3 "$ROOT/tools/site/catalog.py" "$DIST" "$SITE" "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo local)}"
 
 manifest() { # <name> <board dir rel to manifest> <app file>
   cat <<JSON

@@ -216,6 +216,12 @@ describe('firmware images', () => {
     assert.equal(op.firmwareProblem(img, { project: '' }), null); // older firmware: no project to hold against it
     assert.equal(op.firmwareProblem(img, null), null);
   });
+  test('the OTA base takes any app image, and only app images', () => {
+    const base = { project: op.BASE_PROJECT };
+    assert.equal(op.firmwareProblem(makeImage({ project: 'hello_world' }), base), null);
+    assert.equal(op.firmwareProblem(img, base), null);
+    assert.equal(op.firmwareProblem(utf8('not firmware'), base), 'Not an ESP32 app image');
+  });
   test('board names', () => {
     assert.equal(op.boardName('oraclepet_lcd28'), '2.8in ILI9341');
     assert.equal(op.boardName('jc3248_pet_idf'), 'JC3248 3.5in');

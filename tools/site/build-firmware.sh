@@ -10,7 +10,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PET="$ROOT/lab/jc3248-pet-idf"
 OUT="$ROOT/dist"
-JC_PACKS=(${JC_PACKS:-bufo cat cat-orange cat-pet clawd siamese})
+ALL_PACKS=$(for d in "$ROOT"/lab/buddy/characters/*/; do [ -f "$d/manifest.json" ] && basename "$d"; done)
+JC_PACKS=(${JC_PACKS:-$ALL_PACKS})
 
 # The LittleFS image holds every pack; the build bakes it from data/.
 rm -rf "$PET/data" && mkdir -p "$PET/data/characters"
@@ -44,5 +45,17 @@ for board in sc01 lcd28; do
   cp "build-$board/oraclepet_$board.bin" "$OUT/$board/app-siamese.bin"
   copy_common "build-$board" "$OUT/$board"
 done
+
+# The OTA base (lab/ota-base): lives in factory, takes any ESP32-S3 image over BLE.
+# Its USB install also writes the pet's character storage, so a pet sent over BLE
+# later finds its packs.
+echo "── base"
+mkdir -p "$OUT/base"
+( cd "$ROOT/lab/ota-base" && idf.py -B build build )
+B="$ROOT/lab/ota-base/build"
+cp "$B/bootloader/bootloader.bin" "$B/partition_table/partition-table.bin" \
+   "$B/ota_data_initial.bin" "$OUT/base/"
+cp "$B/oraclepet_base.bin" "$OUT/base/app-base.bin"
+cp "$OUT/jc3248/storage.bin" "$OUT/base/storage.bin"
 
 ( cd "$OUT" && find . -name '*.bin' -exec ls -l {} \; && sha256sum */*.bin > SHA256SUMS )

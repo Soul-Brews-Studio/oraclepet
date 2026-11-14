@@ -42,6 +42,8 @@ export const PROJECTS = Object.freeze({
   oraclepet_sc01: 'WT32-SC01 Plus',
 });
 export const isPetProject = (project) => Object.hasOwn(PROJECTS, project);
+/** lab/ota-base: takes any ESP32-S3 app image over BLE and boots it. */
+export const BASE_PROJECT = 'oraclepet_base';
 export const boardName = (project) => (isPetProject(project) ? PROJECTS[project] : String(project ?? ''));
 
 /** Control command bytes (PROTOCOL.md 4.2). */
@@ -503,6 +505,7 @@ export function imageInfo(image) {
 export function firmwareProblem(image, pet) {
   const name = projectName(image);
   if (name === null) return 'Not an ESP32 app image';
+  if (pet?.project === BASE_PROJECT) return null; // the OTA base installs any ESP32-S3 image
   if (!isPetProject(name)) return `Not a pet firmware: ${name}`;
   const mine = pet?.project;
   if (mine && mine !== name) return `That firmware is for the ${boardName(name)} board; this pet is ${boardName(mine)}`;
@@ -1006,7 +1009,10 @@ export class Pet extends EventTarget {
       const problem = firmwareProblem(data, this.info);
       if (problem) throw new PetError(problem);
       const img = imageInfo(data);
-      return { type: 'transfer', label: `firmware ${img.version} for the ${img.board}`, files: [{ path: null, data }] };
+      // To the base, a non-pet image is the end of the story: the board boots it and may
+      // never come back as a pet, so "done" is the success, not the reconnect.
+      const foreign = this.info?.project === BASE_PROJECT && !isPetProject(img.project);
+      return { type: 'transfer', label: `firmware ${img.version} for the ${img.board}`, files: [{ path: null, data }], foreign };
     });
   }
 
@@ -1329,6 +1335,9 @@ export class Pet extends EventTarget {
         job.fileIndex += 1;
         const end = await this._sendFile(job, f);
         job.bytesDone += f.data.length;
+        if (f.path === null && job.foreign) {
+          return { message: `Sent in ${secs()} s: the board is restarting into ${imageInfo(f.data)?.project ?? 'the new firmware'}`, bytes: job.bytes, seconds: secs() };
+        }
         if (f.path === null) {
           // full OTA: the result is the pet coming back on the other slot
           const back = end.kind === 'rebooted' ? end : await this._until((st) => st.kind === 'rebooted');

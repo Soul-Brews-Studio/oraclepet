@@ -12,8 +12,13 @@ LE, and takes new firmware, animation packs and WebAssembly apps over the air.
   character pack or an app over Web Bluetooth. Firmware updates go to the idle OTA slot and
   roll back if the new image does not confirm itself.
 
-Both need Chrome or Edge on desktop, or Chrome on Android. Safari, Firefox and iOS have
-neither Web Serial nor Web Bluetooth.
+- **OTA base** (any firmware): a small firmware for any ESP32-S3 with 8 MB of flash. It only
+  waits for an app image over Bluetooth, installs it and boots it, and stays in its own factory
+  partition so you can always go back to it. See [`lab/ota-base`](lab/ota-base).
+
+USB install uses [esptool-js](https://github.com/espressif/esptool-js): Web Serial on desktop
+Chrome and Edge, WebUSB on Chrome for Android. Bluetooth needs Chrome or Edge on desktop, or
+Chrome on Android. Safari, Firefox and iOS have neither.
 
 ## Boards
 
@@ -37,6 +42,8 @@ The pet itself:
 | [`lab/desk-pet-mac`](lab/desk-pet-mac) | OraclePet for macOS (Swift, CoreBluetooth): links the pets, shows agent state, sends OTA updates |
 | [`lab/pet-sdk`](lab/pet-sdk) | build pet apps in C, Zig, Rust or AssemblyScript to `.wasm` |
 | [`lab/pet-studio`](lab/pet-studio) | a local web page and MCP server over the tools above |
+| [`lab/ota-base`](lab/ota-base) | the OTA base: takes any ESP32-S3 app image over BLE |
+| [`site`](site) | the web flasher (React, Tailwind, esptool-js), deployed to GitHub Pages |
 | [`lab/buddy/characters`](lab/buddy/characters) | the character packs (each has its own license note) |
 
 The rest of the lab, kept as it was built: the Arduino desk pet this started from
@@ -61,9 +68,18 @@ Other boards: `idf.py -B build-sc01 -DPET_BOARD=sc01 -DSDKCONFIG=build-sc01/sdkc
 (or `lcd28`). The GitHub Pages site is built by
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml) from this same source.
 
+To publish a build made on your own machine instead of waiting for CI:
+
+```sh
+tools/site/publish-local.sh   # builds dist/, uploads it to the firmware-latest release, redeploys Pages
+```
+
+Work on the site: run `tools/site/build-site.sh` once (it needs `dist/`), then
+`cd site && npm run dev`; the dev server serves `_site/` for the firmware files.
+
 ## Security notes
 
-- The OTA service has no pairing or passcode. Anyone in Bluetooth range can send the pet
+- The OTA service (pet and base) has no pairing or passcode. Anyone in Bluetooth range can send the pet
   an image while it is advertising. The pet checks the size, CRC and project name and rolls
   back an image that fails to boot, but it does not check who sent it. Do not use it where
   that matters.
