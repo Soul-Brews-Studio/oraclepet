@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ESP32 Oracle desk-pet — Web Flasher</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <script type="module" src="https://unpkg.com/esp-web-tools@9.4.3/dist/web/install-button.js?module"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink:#06070a; --coal:#0e0f12; --dusk:#16171b; --embers:#23232a;
+      --ash:#8a8a93; --chalk:#e8e6df; --glow:#f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; padding: 2.75rem 2.25rem; max-width: 1280px;
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+      background:
+        radial-gradient(50% 45% at 15% 0%, rgba(245,158,11,.10) 0%, rgba(245,158,11,.03) 35%, transparent 70%),
+        var(--ink);
+      color: var(--chalk); min-height: 100vh;
+    }
+    /* Fluid full-width layout: packs + flash flow on the left, the device
+       preview is pinned on the right (sticky) — fills the page, §03 dignity. */
+    .cols { display: grid; gap: 0 1.75rem; grid-template-columns: 1fr; align-items: start; margin-top: 1.25rem; }
+    @media (min-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr) 392px; } }
+    .cols .panel { margin: 0 0 1.25rem; }
+    .pvpanel { position: sticky; top: 1.5rem; }
+    .psi { color: var(--glow); text-shadow: 0 0 12px rgba(245,158,11,.55), 0 0 36px rgba(245,158,11,.25); }
+    .kicker { font: 600 11px/1 ui-monospace, "JetBrains Mono", monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--glow); }
+    h1 { font-weight: 600; font-size: 1.9rem; margin: .6rem 0 .3rem; letter-spacing: -.01em; }
+    .sub { color: var(--ash); margin: 0 0 2rem; }
+    .panel { border: 1px solid var(--embers); border-radius: 14px; padding: 1.5rem; background: var(--coal); margin: 1.25rem 0; }
+    .panel h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
+    /* Packs as a numbered 01–05 list — all five visible, thumbs animating, no clicks. */
+    .packs { display: grid; grid-template-columns: 1fr; gap: .5rem; }
+    .pack {
+      display: flex; align-items: center; gap: .8rem; cursor: pointer;
+      border: 1px solid var(--embers); border-radius: 10px; padding: .6rem .85rem;
+      background: var(--ink); transition: border-color .15s, background .15s;
+    }
+    .pack:hover { border-color: rgba(245,158,11,.4); }
+    .pack.sel { border-color: var(--glow); background: var(--dusk); box-shadow: 0 0 0 1px var(--glow) inset; }
+    .pack .num { flex: 0 0 auto; font: 600 12px/1 ui-monospace, "JetBrains Mono", monospace;
+                 letter-spacing: .1em; color: var(--ash); opacity: .5; }
+    .pack.sel .num { color: var(--glow); opacity: 1; }
+    /* Live pack thumb — the actual idle.gif animating, pixel-art crisp. */
+    .pack .thumb {
+      width: 48px; height: 48px; flex: 0 0 48px;
+      object-fit: cover; border-radius: 8px;
+      background: #000; image-rendering: pixelated;
+    }
+    .pack .nm { font-weight: 600; }
+    .pack .nm small { display:block; color: var(--ash); font-weight: 400; font-size: 11.5px; }
+    .pack input { position: absolute; opacity: 0; pointer-events: none; }
+    .prevcap { font-size: 12px; color: var(--ash); text-align: center; margin: 0 0 .8rem; }
+    .prevwrap { display: flex; justify-content: center; }
+    /* §03-style device frame — the real JC3248W535 320×480 portrait, glass-slab bezel. */
+    .device { border-radius: 24px; padding: 13px;
+      background: linear-gradient(to bottom, #1a1b20, #0c0d10);
+      box-shadow: 0 30px 60px -25px rgba(0,0,0,.9), inset 0 0 0 1px rgba(255,255,255,.08); }
+    .bezel { display:flex; align-items:center; justify-content:center; gap:8px; padding: 1px 0 9px; }
+    .bezel .slit { width:42px; height:4px; border-radius:99px; background: rgba(255,255,255,.10); }
+    .bezel .cam  { width:4px;  height:4px; border-radius:99px; background: rgba(255,255,255,.16); }
+    .screen { overflow:hidden; border-radius:11px; background:#000; box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+    #preview { display:block; width:320px; height:480px; border:0; background:#000; }
+    .board { padding-top:9px; text-align:center; font: 9px/1 ui-monospace, monospace;
+             letter-spacing:.16em; text-transform:uppercase; color: rgba(138,138,147,.55); }
+    .install { margin-top: 1.4rem; min-height: 48px; }
+    esp-web-install-button {
+      --esp-tools-button-color: var(--glow);
+      --esp-tools-button-text-color: var(--ink);
+    }
+    code { background: var(--embers); padding: 1px 6px; border-radius: 4px; font: .9em ui-monospace, monospace; }
+    .note { font-size: 12.5px; color: var(--ash); margin-top: 1rem; }
+    .note b { color: var(--chalk); }
+    a { color: var(--glow); }
+    .unsupported { display:none; color:#f0a; border:1px solid #714; background:#190810; padding:.8rem 1rem; border-radius:10px; }
+  </style>
+</head>
+<body>
+  <p class="kicker"><span class="psi">Ψ</span> esp32-oracle · jc3248w535</p>
+  <h1>Desk-pet Web Flasher</h1>
+  <p class="sub">Pick a character, plug the pet into USB, and flash it from this page — no toolchain. The same firmware that runs on the device.</p>
+
+  <div class="cols">
+    <div class="left">
+      <div class="panel">
+        <h2>1 · Choose a pack</h2>
+        <div class="packs" id="packs">
+          <label class="pack"><input type="radio" name="pack" value="bufo"><span class="num">01</span><img class="thumb" src="preview/gifs/idle_0.gif" alt=""><span class="nm">bufo<small>the original frog</small></span></label>
+          <label class="pack"><input type="radio" name="pack" value="cat"><span class="num">02</span><img class="thumb" src="preview/gifs/cat/idle.gif" alt=""><span class="nm">cat<small>CC0 tabby</small></span></label>
+          <label class="pack"><input type="radio" name="pack" value="cat-orange"><span class="num">03</span><img class="thumb" src="preview/gifs/cat-orange/idle.gif" alt=""><span class="nm">cat-orange<small>CC0 ginger</small></span></label>
+          <label class="pack"><input type="radio" name="pack" value="cat-pet"><span class="num">04</span><img class="thumb" src="preview/gifs/cat-pet/idle.gif" alt=""><span class="nm">cat-pet<small>CC0 kitten</small></span></label>
+          <label class="pack sel"><input type="radio" name="pack" value="clawd" checked><span class="num">05</span><img class="thumb" src="preview/gifs/clawd/clawd-idle.gif" alt=""><span class="nm">clawd<small>Claude mascot · MIT</small></span></label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>2 · Flash</h2>
+        <p class="note" style="margin-top:0;">Connect via the <b>native USB</b> port, then click. Desktop <b>Chrome / Edge / Opera</b> only (Web Serial).</p>
+        <div class="install" id="install"></div>
+        <div class="unsupported" id="unsupported">This browser can't do Web Serial. Use desktop Chrome, Edge, or Opera.</div>
+      </div>
+
+      <div class="panel">
+        <h2>What gets flashed</h2>
+        <p class="note" style="margin-top:0;">The app image for your chosen pack at <code>0x10000</code> + the shared 3 MB LittleFS storage at <code>0x290000</code> (it holds <b>all</b> packs — only the boot default differs). ESP32-S3, JC3248W535 (320×480 AXS15231). Cats are <b>CC0</b> — see each pack's <code>PROVENANCE.md</code>.</p>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="pvpanel">
+        <p class="prevcap">live preview — the real device screen, 320×480, the same WASM decoder the pet runs</p>
+        <div class="prevwrap">
+          <div class="device">
+            <div class="bezel"><span class="slit"></span><span class="cam"></span></div>
+            <div class="screen"><iframe id="preview" title="live pack preview" src="preview/index.html?embed=1&pack=clawd"></iframe></div>
+            <div class="board">ESP32-S3 · 320×480</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">Firmware built from <code>lab/jc3248-pet-idf</code> · <code>tools/build-packs.sh</code>. Many bodies, one soul. <span class="psi">🕯️</span></p>
+
+  <script type="module">
+    const install = document.getElementById('install');
+    // Recreate the button on each selection so esp-web-tools re-reads the manifest.
+    const preview = document.getElementById('preview');
+    function setPack(pack) {
+      install.innerHTML =
+        `<esp-web-install-button manifest="manifest-${pack}.json"></esp-web-install-button>`;
+      // Drive the live WASM preview to the selected pack (reloads the small decoder).
+      if (preview) preview.src = `preview/index.html?embed=1&pack=${pack}`;
+    }
+    document.getElementById('packs').addEventListener('change', (e) => {
+      if (e.target.name !== 'pack') return;
+      document.querySelectorAll('.pack').forEach(l => l.classList.toggle('sel', l.contains(e.target)));
+      setPack(e.target.value);
+    });
+    setPack('clawd');
+    // Web Serial support hint
+    if (!('serial' in navigator) && !('usb' in navigator)) {
+      document.getElementById('unsupported').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

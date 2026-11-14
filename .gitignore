@@ -58,8 +58,10 @@ __pycache__/
 .tmp/
 
 # Local web flasher — esp-web-tools manifest + firmware bins for browser WebUSB
-# flashing of the Waveshare 7B (and friends). Build artifacts; never committed.
-webflasher/
+# flashing. The page and its scripts are source; what stage.sh copies in is not.
+webflasher/*.bin
+webflasher/manifest*.json
+webflasher/preview/
 
 # ψ/inbox — federation messages may contain real credentials (wifi/OTA passwords)
 ψ/inbox/
