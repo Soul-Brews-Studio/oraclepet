@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OraclePet · USB flash · __BOARD__</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<main>
+  <p class="crumb"><a href="../../">OraclePet</a> / USB / __BOARD__</p>
+  <h1>Flash the __BOARD__ over USB</h1>
+  <ol>
+    <li>Plug the board in with a USB data cable.</li>
+    <li>Press Install and pick its serial port (often <code>usbmodem…</code> or <code>USB JTAG/serial</code>).</li>
+    <li>Wait for the write to finish, then the board restarts into the pet.</li>
+  </ol>
+  <esp-web-install-button manifest="manifest.json">
+    <span slot="unsupported">This browser has no Web Serial. Use Chrome or Edge on desktop.</span>
+  </esp-web-install-button>
+  <p class="note">Writes bootloader, partition table, OTA data, the app (default character: siamese) and the
+  3 MB character storage. Later updates can go over Bluetooth from the <a href="../../ble/">BLE tool</a>.</p>
+</main>
+</body>
+</html>

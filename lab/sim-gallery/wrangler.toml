@@ -1,0 +1,29 @@
+# Cloudflare Worker with Static Assets — the modern recommended path for a
+# Vite SPA. Wrangler serves files from ./dist directly at the edge; no Worker
+# code is needed for a pure static site (the `main` field is optional). Deploys
+# to https://<name>.<your-subdomain>.workers.dev .
+#
+#   pnpm build           # vite build -> ./dist
+#   wrangler login       # one-time (browser OAuth)
+#   pnpm deploy          # wrangler deploy
+#
+# To bind a custom domain or KV later, edit this file; see
+# https://developers.cloudflare.com/workers/static-assets/
+
+name = "esp32-oracle-sim-gallery"
+compatibility_date = "2026-05-31"
+
+# Custom domain. Wrangler auto-provisions the DNS record + edge cert on deploy,
+# as long as the `buildwithoracle.com` zone lives on this Cloudflare account.
+routes = [
+  { pattern = "esp32.buildwithoracle.com", custom_domain = true }
+]
+# Keep the original *.workers.dev URL alive too — adding a custom domain
+# otherwise disables it by default, which would break already-shared links.
+workers_dev = true
+
+[assets]
+directory = "./dist"
+# SPA-style fallback (we don't currently have client-side routes — this is the
+# single-page home — but turning it on costs nothing and protects future routes).
+not_found_handling = "single-page-application"

@@ -1,0 +1,118 @@
+# Live-transcript variant = voice build (poster + Wi-Fi + Improv + clock/wifi
+# overlay + I2S audio + MQTT speak) + a LIVE TRANSCRIPT page driven by MQTT.
+#
+# Subscribes transcriber/m5/utterance (JSON {ts,speaker,text,channelName}),
+# rolls the last 3 "speaker: text" lines onto a dedicated LVGL page, and
+# auto-switches to that page on each utterance so the conversation is visible
+# without touch-nav. The wifi/clock overlay (top_layer) stays on top here too.
+#
+# Thai text: Kanit-Regular.ttf, glyphs = ASCII 0x20-0x7E + Thai U+0E01-0E3A,
+# U+0E3F-0E5B (assigned codepoints only, so the build never hits a missing
+# glyph). CAVEAT: LVGL has no Thai complex shaping, so stacked vowels/tone
+# marks may sit a little off — fine for a basic caption (Kanit reads OK).
+#
+# Built by esp32-oracle (2026-06-26). neo-genesis builds+flashes+deploys.
+
+packages:
+  voice: !include jc3248w535-voice.yaml
+
+esphome:
+  name: oracle-face-live
+  friendly_name: Neo Genesis (Live)
+
+substitutions:
+  transcript_topic: "transcriber/m5/utterance"
+
+# Thai-capable fonts for the transcript (merge with the poster's noto/material fonts).
+font:
+  - file: "sim/fonts/Kanit-Regular.ttf"
+    id: thai_18
+    size: 18
+    glyphs: ' !"#$%&''()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮฯะัาำิีึืฺุู฿เแโใไๅๆ็่้๊๋์ํ๎๏๐๑๒๓๔๕๖๗๘๙๚๛'
+  - file: "sim/fonts/Kanit-Regular.ttf"
+    id: thai_22
+    size: 22
+    glyphs: ' !"#$%&''()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรฤลฦวศษสหฬอฮฯะัาำิีึืฺุู฿เแโใไๅๆ็่้๊๋์ํ๎๏๐๑๒๓๔๕๖๗๘๙๚๛'
+
+# Last 3 transcript lines (newest = tl3).
+globals:
+  - id: tl1
+    type: std::string
+    restore_value: no
+  - id: tl2
+    type: std::string
+    restore_value: no
+  - id: tl3
+    type: std::string
+    restore_value: no
+
+# Parse the JSON utterance and roll it onto the live page.
+mqtt:
+  on_json_message:
+    - topic: ${transcript_topic}
+      then:
+        - lambda: |-
+            std::string spk = x["speaker"].as<std::string>();
+            std::string txt = x["text"].as<std::string>();
+            if (spk.empty() && txt.empty()) return;
+            std::string line = spk.empty() ? txt : (spk + ": " + txt);
+            id(tl1) = id(tl2);
+            id(tl2) = id(tl3);
+            id(tl3) = line;
+        - lvgl.label.update:
+            id: line1
+            text: !lambda 'return id(tl1);'
+        - lvgl.label.update:
+            id: line2
+            text: !lambda 'return id(tl2);'
+        - lvgl.label.update:
+            id: line3
+            text: !lambda 'return id(tl3);'
+        - lvgl.page.show: live_page
+
+# Dedicated LIVE TRANSCRIPT page (merges with the poster's lvgl: block).
+lvgl:
+  pages:
+    - id: live_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 0
+      radius: 0
+      border_width: 0
+      widgets:
+        - label:
+            align: TOP_MID
+            y: 14
+            text: "LIVE TRANSCRIPT"
+            text_color: 0xFFD27F
+            text_font: thai_18
+        - label:
+            id: line1
+            align: TOP_LEFT
+            x: 12
+            y: 56
+            width: 296
+            long_mode: WRAP
+            text: ""
+            text_color: 0x666666
+            text_font: thai_18
+        - label:
+            id: line2
+            align: TOP_LEFT
+            x: 12
+            y: 168
+            width: 296
+            long_mode: WRAP
+            text: ""
+            text_color: 0xAAAAAA
+            text_font: thai_22
+        - label:
+            id: line3
+            align: TOP_LEFT
+            x: 12
+            y: 300
+            width: 296
+            long_mode: WRAP
+            text: ""
+            text_color: 0xFFFFFF
+            text_font: thai_22

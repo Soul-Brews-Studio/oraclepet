@@ -1,0 +1,58 @@
+[package]
+name = "esp32-discord-bot"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+rust-version = "1.85"
+description = "The OraclePet (ESP32-S3) as its own Discord voice bot: gateway, voice v8, UDP/RTP, DAVE (davey)"
+license = "MIT"
+
+[[bin]]
+name = "esp32-discord-bot"
+harness = false
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+lto = "fat"
+debug = 1
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+esp-idf-svc = "0.53"
+serde_json = "1"
+# transport encryption: aead_aes256_gcm_rtpsize (preferred) and aead_xchacha20_poly1305_rtpsize (required)
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+# DAVE (Discord's end-to-end encryption): openmls + RustCrypto, pure Rust; what discord.js uses
+davey = { version = "0.1.5", default-features = false }
+
+[patch.crates-io]
+# openmls → fluvio-wasm-timer → parking_lot 0.11 → parking_lot_core 0.8.6 calls
+# pthread_condattr_setclock, which ESP-IDF's libc lacks: this copy waits on CLOCK_REALTIME on
+# espidf, as it already does on Android (patches/parking_lot_core/src/thread_parker/unix.rs)
+parking_lot_core = { path = "patches/parking_lot_core" }
+
+[build-dependencies]
+embuild = "0.33"
+
+# esp-idf-svc's WebSocket client needs this component (it left ESP-IDF in v5)
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_websocket_client", version = "^1.4" }
+
+# Opus: Espressif's encoder (the one xiaozhi runs on this board), bindings in src/opus.h
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_audio_codec", version = "^2.4" }
+bindings_header = "src/opus.h"
+bindings_module = "opus"
+
+# the pet board's ES8311 mic (C, esp_codec_dev), bindings in esp_idf_svc::sys::mic
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components/mic"]
+bindings_header = "components/mic/include/mic.h"
+bindings_module = "mic"

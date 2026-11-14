@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claude Buddy iPad BLE mockup</title>
+  <style>
+    :root {
+      --orange: #cc785c;
+      --cream: #f0eee6;
+      --dark: #1f1f1f;
+      --black: #000;
+      --cyan: #00ffff;
+      --green: #00ff00;
+      --gray-mid: #777;
+    }
+    html, body { margin: 0; min-height: 100%; background: #07090f; color: white; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1600px; margin: 0 auto; padding: 24px; }
+    img { width: 100%; height: auto; display: block; border-radius: 18px; box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+    section { margin-top: 24px; padding: 20px 24px; border: 1px solid rgba(240,238,230,.35); border-radius: 18px; background: rgba(31,31,31,.72); }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 58px); }
+    h2 { margin: 0 0 10px; color: var(--orange); }
+    p, li { color: rgba(240,238,230,.82); font-size: 18px; line-height: 1.45; }
+    code { color: var(--cyan); font-family: Menlo, Monaco, "SF Mono", monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Claude Buddy · iPad BLE mockup</h1>
+    <p>HTML/SVG first because it is easiest to inspect, share, and adjust. SwiftUI should copy this structure after the visual is accepted.</p>
+    <img src="ipad-buddy-ui-real-ipad.svg" alt="Real iPad SVG mockup for Claude Buddy BLE reader" />
+    <p><a href="cardputer-buddy-ui-mock.svg">Secondary flat board mockup</a></p>
+    <section>
+      <h2>Design rules learned from /build-with-claude/buddy/device/apps</h2>
+      <ul>
+        <li>Cardputer surface is fixed <code>240×135</code> landscape, scaled up on iPad.</li>
+        <li>Header is <code>0..20</code> dark with orange title, right status badge, orange hairline at <code>y=20</code>.</li>
+        <li>Idle screen shows pairing instructions only; no fake queue/token values.</li>
+        <li>Connected screen may show queue/token/message rows only from live BLE rows.</li>
+        <li>Bottom hint strip always reserves <code>y=111..134</code> for <code>Y once / N deny / Q exit</code>.</li>
+        <li>Proof cards must remain next to the pretty UI: draft/local, live BLE TX, device RX.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

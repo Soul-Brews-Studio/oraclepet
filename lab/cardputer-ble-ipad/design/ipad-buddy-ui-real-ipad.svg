@@ -1,0 +1,222 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1400" viewBox="0 0 1800 1400" role="img" aria-label="Real iPad SVG mockup for Claude Buddy BLE reader">
+  <defs>
+    <linearGradient id="desk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#06080d"/>
+      <stop offset="0.45" stop-color="#11121a"/>
+      <stop offset="1" stop-color="#1d0f0b"/>
+    </linearGradient>
+    <linearGradient id="screenBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.46" stop-color="#0a0a12"/>
+      <stop offset="1" stop-color="#1a0f0b"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#252a33" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#161820" stop-opacity="0.96"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111217"/>
+      <stop offset="0.5" stop-color="#030304"/>
+      <stop offset="1" stop-color="#18191e"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8c8f96"/>
+      <stop offset="0.08" stop-color="#2a2c31"/>
+      <stop offset="0.5" stop-color="#08090b"/>
+      <stop offset="0.92" stop-color="#2a2c31"/>
+      <stop offset="1" stop-color="#b7bac0"/>
+    </linearGradient>
+    <radialGradient id="glowOrange" cx="50%" cy="50%" r="70%">
+      <stop offset="0" stop-color="#cc785c" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#cc785c" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ipadShadow" x="-20%" y="-10%" width="140%" height="125%">
+      <feDropShadow dx="0" dy="38" stdDeviation="34" flood-color="#000000" flood-opacity="0.65"/>
+    </filter>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <style><![CDATA[
+      :root { color-scheme: dark; }
+      .ui { font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; }
+      .mono { font-family: Menlo, Monaco, "SF Mono", "DejaVu Sans Mono", monospace; }
+      .lcd { font-family: Menlo, Monaco, "SF Mono", "DejaVu Sans Mono", monospace; font-size: 9px; font-weight: 650; dominant-baseline: hanging; }
+      .title { font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; font-weight: 900; fill: #ffffff; }
+      .sub { font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; fill: rgba(240,238,230,.74); }
+      .tiny { font-family: Menlo, Monaco, "SF Mono", monospace; font-size: 13px; fill: rgba(240,238,230,.74); }
+      .pillText { font-family: Menlo, Monaco, "SF Mono", monospace; font-size: 13px; font-weight: 800; }
+      .label { font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; font-size: 17px; fill: rgba(240,238,230,.80); }
+      .caption { font-family: Menlo, Monaco, "SF Mono", monospace; font-size: 12px; fill: rgba(240,238,230,.64); }
+      .orange { fill: #cc785c; }
+      .cream { fill: #f0eee6; }
+      .cyan { fill: #00ffff; }
+      .green { fill: #00ff66; }
+      .purple { fill: #cc33ff; }
+      .muted { fill: #777777; }
+    ]]></style>
+  </defs>
+
+  <rect width="1800" height="1400" fill="url(#desk)"/>
+  <ellipse cx="1030" cy="715" rx="720" ry="600" fill="url(#glowOrange)" opacity="0.42"/>
+
+  <!-- Side annotations: keep the iPad as the hero, but document why this is SVG-first. -->
+  <g class="ui" transform="translate(1240 100)">
+    <text class="title" x="0" y="0" font-size="48">Real iPad SVG first</text>
+    <text class="sub" x="0" y="48" font-size="24">SVG reference → SwiftUI implementation.</text>
+    <g transform="translate(0 92)">
+      <rect x="0" y="0" width="425" height="48" rx="24" fill="#2a1b15" stroke="#cc785c"/>
+      <text x="24" y="31" class="pillText" fill="#cc785c">HTML/SVG is the design surface</text>
+    </g>
+    <g transform="translate(0 152)">
+      <rect x="0" y="0" width="336" height="48" rx="24" fill="#06282f" stroke="#00ffff"/>
+      <text x="24" y="31" class="pillText" fill="#00ffff">SwiftUI copies this exactly</text>
+    </g>
+    <g transform="translate(0 248)">
+      <text class="title" x="0" y="0" font-size="26">Source contract learned</text>
+      <text class="tiny" x="0" y="36">/build-with-claude/buddy/device/apps</text>
+      <text class="tiny" x="0" y="60">buddy_ui_cp.py = 240×135 truth</text>
+      <text class="tiny" x="0" y="84">No fake queue/token rows before BLE proof</text>
+      <text class="tiny" x="0" y="108">NUS RX write + TX notify are separate proof</text>
+    </g>
+    <g transform="translate(0 430)">
+      <rect x="0" y="0" width="472" height="210" rx="26" fill="#171920" stroke="rgba(240,238,230,.45)"/>
+      <text class="title" x="28" y="34" font-size="25">Acceptance for app screenshot</text>
+      <text class="label" x="28" y="74">1. Looks like an iPad app, not a raw form.</text>
+      <text class="label" x="28" y="108">2. Cardputer mirror uses the real 240×135 chrome.</text>
+      <text class="label" x="28" y="142">3. “Draft / Live TX / Device RX” never disappears.</text>
+      <text class="label" x="28" y="176">4. Data becomes “real” only from CoreBluetooth evidence.</text>
+    </g>
+  </g>
+
+  <!-- Real iPad shell. -->
+  <g filter="url(#ipadShadow)" transform="translate(92 42)">
+    <!-- metal rim and black bezel -->
+    <rect x="0" y="0" width="1120" height="1316" rx="72" fill="url(#metal)"/>
+    <rect x="11" y="11" width="1098" height="1294" rx="64" fill="url(#bezel)"/>
+    <rect x="56" y="68" width="1008" height="1180" rx="34" fill="#030306"/>
+
+    <!-- small camera and subtle speaker hardware -->
+    <circle cx="560" cy="42" r="8" fill="#12141b" stroke="#2e333d"/>
+    <circle cx="560" cy="42" r="3" fill="#263851"/>
+    <rect x="505" y="1264" width="110" height="5" rx="3" fill="#30323a" opacity="0.58"/>
+
+    <!-- iPad screen/app canvas -->
+    <g transform="translate(72 84)">
+      <rect x="0" y="0" width="976" height="1148" rx="28" fill="url(#screenBg)"/>
+      <rect x="0" y="0" width="976" height="1148" rx="28" fill="none" stroke="rgba(255,255,255,.10)"/>
+
+      <!-- iOS status bar -->
+      <text class="ui" x="30" y="32" font-size="18" font-weight="700" fill="rgba(255,255,255,.86)">09:41</text>
+      <text class="mono" x="812" y="32" font-size="15" fill="rgba(255,255,255,.76)">iPad · BLE</text>
+      <rect x="912" y="18" width="34" height="15" rx="4" fill="none" stroke="rgba(255,255,255,.70)"/>
+      <rect x="948" y="23" width="3" height="6" rx="1.5" fill="rgba(255,255,255,.70)"/>
+      <rect x="916" y="21" width="24" height="9" rx="2" fill="#00ff66"/>
+
+      <!-- App title -->
+      <text class="title" x="34" y="82" font-size="43">Claude Buddy · BLE</text>
+      <text class="sub" x="34" y="116" font-size="20">Cardputer UI mirror + proof console. No hardcoded “real data”.</text>
+      <g transform="translate(646 72)">
+        <rect x="0" y="0" width="145" height="30" rx="15" fill="#1f2a22" stroke="#00ff66"/>
+        <text x="18" y="20" class="pillText" fill="#00ff66">powered on</text>
+        <rect x="156" y="0" width="121" height="30" rx="15" fill="#2b1c16" stroke="#cc785c"/>
+        <text x="173" y="20" class="pillText" fill="#cc785c">draft-safe</text>
+      </g>
+
+      <!-- Hero card -->
+      <g transform="translate(34 146)" filter="url(#cardShadow)">
+        <rect x="0" y="0" width="908" height="362" rx="28" fill="url(#glass)" stroke="rgba(204,120,92,.45)"/>
+        <text class="title" x="28" y="48" font-size="36">Cardputer screen mirror</text>
+        <text class="sub" x="28" y="82" font-size="18">Fixed 240×135 layout from buddy_ui_cp.py, scaled up for the iPad.</text>
+        <text class="label" x="28" y="126">Default state is honest idle:</text>
+        <text class="tiny" x="28" y="156">Waiting to pair… Settings &gt; Buddy</text>
+        <text class="tiny" x="28" y="182">No queue, tokens, owner, or device facts yet.</text>
+        <text class="label" x="28" y="226">After live BLE proof:</text>
+        <text class="tiny" x="28" y="256">queue/token rows bind to decoded live TX rows.</text>
+        <text class="tiny" x="28" y="280">device data appears only from TX notify.</text>
+
+        <!-- iPad app component: Cardputer display scaled 2.15x with a device bezel -->
+        <g transform="translate(464 48)">
+          <rect x="0" y="0" width="470" height="272" rx="24" fill="#050506" stroke="#383a40"/>
+          <rect x="18" y="18" width="432" height="243" rx="8" fill="#000000" stroke="#333333"/>
+          <g transform="translate(26 26) scale(1.70)">
+            <rect x="0" y="0" width="240" height="135" fill="#000000"/>
+            <rect x="0" y="0" width="240" height="20" fill="#1f1f1f"/>
+            <rect x="0" y="20" width="240" height="1" fill="#cc785c"/>
+            <text x="6" y="5" class="lcd orange">Claude Buddy</text>
+            <text x="202" y="5" class="lcd cyan">ADV</text>
+            <text x="6" y="28" class="lcd cream">Waiting to pair...</text>
+            <text x="6" y="48" class="lcd muted">Open Claude, go to</text>
+            <text x="6" y="66" class="lcd muted">Settings &gt; Buddy</text>
+            <text x="6" y="84" class="lcd muted">and pick this one</text>
+            <rect x="0" y="111" width="240" height="1" fill="#cc785c"/>
+            <rect x="0" y="112" width="240" height="23" fill="#1f1f1f"/>
+            <text x="8" y="117" class="lcd cream">Y once</text>
+            <text x="96" y="117" class="lcd cream">N deny</text>
+            <text x="198" y="117" class="lcd cream">Q exit</text>
+          </g>
+          <text class="caption" x="16" y="258">real Cardputer coordinates rendered as an iPad preview component</text>
+        </g>
+      </g>
+
+      <!-- Proof strip -->
+      <g transform="translate(34 532)">
+        <text class="title" x="0" y="0" font-size="28">Truth layer</text>
+        <text class="sub" x="0" y="30" font-size="17">Beautiful UI, but the screenshot still tells whether bytes actually moved.</text>
+        <g transform="translate(0 54)">
+          <rect x="0" y="0" width="288" height="148" rx="22" fill="#2a211d" stroke="#cc785c"/>
+          <text class="title" x="20" y="32" font-size="22">1 · Draft/local</text>
+          <text class="pillText" x="20" y="65" fill="#cc785c">NOT SENT</text>
+          <text class="label" x="20" y="96">iPad-generated values.</text>
+          <text class="label" x="20" y="122">Starts at 0 + DRAFT TEST.</text>
+        </g>
+        <g transform="translate(320 54)">
+          <rect x="0" y="0" width="288" height="148" rx="22" fill="#1b2922" stroke="#00ff66"/>
+          <text class="title" x="20" y="32" font-size="22">2 · Live BLE TX</text>
+          <text class="pillText" x="20" y="65" fill="#00ff66">REAL WRITE?</text>
+          <text class="label" x="20" y="96">Only after NUS RX write.</text>
+          <text class="label" x="20" y="122">UUID · bytes · SHA · ack.</text>
+        </g>
+        <g transform="translate(640 54)">
+          <rect x="0" y="0" width="288" height="148" rx="22" fill="#261b2e" stroke="#cc33ff"/>
+          <text class="title" x="20" y="32" font-size="22">3 · Device RX</text>
+          <text class="pillText" x="20" y="65" fill="#cc33ff">REAL NOTIFY?</text>
+          <text class="label" x="20" y="96">Only after TX notify.</text>
+          <text class="label" x="20" y="122">Empty means no device data.</text>
+        </g>
+      </g>
+
+      <!-- Control and evidence cards -->
+      <g transform="translate(34 762)">
+        <rect x="0" y="0" width="908" height="92" rx="22" fill="rgba(31,31,31,.78)" stroke="rgba(240,238,230,.20)"/>
+        <rect x="22" y="22" width="174" height="46" rx="23" fill="#08343b" stroke="#00ffff"/>
+        <text class="pillText" x="43" y="51" fill="#00ffff">Scan Claude/NUS</text>
+        <rect x="212" y="22" width="122" height="46" rx="23" fill="#151820" stroke="rgba(240,238,230,.40)"/>
+        <text class="pillText" x="240" y="51" fill="#f0eee6">Stop scan</text>
+        <rect x="350" y="22" width="136" height="46" rx="23" fill="#151820" stroke="rgba(240,238,230,.40)"/>
+        <text class="pillText" x="378" y="51" fill="#f0eee6">Disconnect</text>
+        <text class="tiny" x="520" y="38">control.last = Ready — scan has not started</text>
+        <text class="tiny" x="520" y="63">NUS RX write no · TX notify no</text>
+      </g>
+
+      <g transform="translate(34 884)">
+        <rect x="0" y="0" width="432" height="198" rx="24" fill="rgba(31,31,31,.78)" stroke="rgba(240,238,230,.18)"/>
+        <text class="title" x="24" y="36" font-size="24">Heartbeat builder</text>
+        <text class="tiny" x="24" y="70">total 0 · running 0 · waiting 0</text>
+        <text class="tiny" x="24" y="96">tokens 0 · tokens_today 0</text>
+        <text class="tiny" x="24" y="122">msg = DRAFT TEST — no live Claude source</text>
+        <rect x="24" y="146" width="182" height="36" rx="18" fill="#2b1c16" stroke="#cc785c"/>
+        <text class="pillText" x="42" y="169" fill="#cc785c">Send draft heartbeat</text>
+
+        <rect x="476" y="0" width="432" height="198" rx="24" fill="rgba(31,31,31,.78)" stroke="rgba(240,238,230,.18)"/>
+        <text class="title" x="500" y="36" font-size="24">Device RX</text>
+        <text class="tiny" x="500" y="70">rx.kind = none</text>
+        <text class="tiny" x="500" y="96">rx.raw = none</text>
+        <text class="tiny" x="500" y="122">Status/hello rows stay blank until notify.</text>
+        <rect x="500" y="146" width="132" height="36" rx="18" fill="#25132f" stroke="#cc33ff"/>
+        <text class="pillText" x="522" y="169" fill="#cc33ff">Clear RX</text>
+      </g>
+
+      <text class="caption" x="34" y="1118">SVG reference file: lab/cardputer-ble-ipad/design/ipad-buddy-ui-real-ipad.svg · copy into SwiftUI after visual approval</text>
+    </g>
+  </g>
+</svg>

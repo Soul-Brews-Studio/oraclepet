@@ -1,0 +1,6 @@
+/target
+/.embuild
+# never commit: the bot token is passed at build time only (tools/build.sh), never stored here
+.env
+sdkconfig
+sdkconfig.old

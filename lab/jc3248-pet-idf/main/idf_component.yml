@@ -1,0 +1,38 @@
+## Managed component dependencies for jc3248-pet-idf.
+##
+## STEP 2 (display): pull the Espressif AXS15231B esp_lcd driver. v2.1.0 (released
+## 2026-01-21) is the first release that declares "Compatible with ESP-IDF v6.0".
+## Its idf_component.yml requires:  idf >=5.3, esp_lcd_touch ^1, cmake_utilities 0.*
+## — those transitive deps are resolved automatically by the component manager.
+##
+## On `idf.py reconfigure` / first build, the manager downloads this into
+##   lab/jc3248-pet-idf/managed_components/espressif__esp_lcd_axs15231b/
+## and writes a dependencies.lock.  Both are build artifacts and are gitignored.
+##
+## NOTE: esp_lcd_touch is pulled now (transitively) but only WIRED in step 4.
+##
+## STEP 5 (assets): pull joltwallet/littlefs — the maintained LittleFS port for
+## ESP-IDF. It provides BOTH the esp_littlefs / esp_vfs_littlefs runtime (mount
+## the "storage" partition at /littlefs, see main/fs.c) AND the CMake function
+## `littlefs_create_partition_image()` used in main/CMakeLists.txt to build and
+## flash the data image. 1.7.0 is the latest 1.x (registry: components.espressif.com).
+##
+## FIRST BUILD AFTER THIS CHANGE RE-FETCHES managed_components/ (NETWORK):
+## the manager downloads joltwallet__littlefs into managed_components/ and
+## rewrites dependencies.lock. Run `make deps` (idf.py reconfigure) once online,
+## or just `make build` — both hit the registry.
+dependencies:
+  idf: ">=5.3"
+  espressif/esp_lcd_axs15231b: "==2.1.0"
+  joltwallet/littlefs: "^1.7.0"
+  ## STEP 12 (pet apps): WebAssembly Micro Runtime. The firmware is the "pet OS";
+  ## an app is a small .wasm (lab/pet-sdk) uploaded by partial OTA into
+  ## /littlefs/apps and run through the host API in main/petapp.c.
+  espressif/wasm-micro-runtime: "^2.4.0"
+  ## lcd28 board (main/board.h): the 2.8in ILI9341 panel and the ES8311 codec. Both
+  ## are pulled for every build; the jc3248 build references neither, so they link out.
+  ## Versions as xiaozhi-esp32 v2.5.2 uses for the same board.
+  espressif/esp_lcd_ili9341: "^2.1.0"
+  espressif/esp_codec_dev: "~1.6.2"
+  ## VOICE.md: find the voice server on the LAN by itself (_oraclepet._tcp).
+  espressif/mdns: "^1.8.0"

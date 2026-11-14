@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>oracle-term — LVGL-WASM terminal viewer (sim)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: dark; }
+    html,body { margin:0; background:#04080a; color:#ccd6db; font-family:-apple-system,system-ui,sans-serif; }
+    body { min-height:100vh; display:flex; flex-direction:column; align-items:center; gap:18px; padding:28px 16px; }
+    h1 { font-weight:300; font-size:17px; margin:0; color:#5d6e75; letter-spacing:.04em; }
+    h1 b { color:#07E7FF; font-weight:500; }
+    .device { background:#0a1419; padding:16px; border-radius:26px; border:1px solid #1f3540;
+              box-shadow:0 30px 60px -20px rgba(0,231,255,.08), 0 10px 30px rgba(0,0,0,.4); }
+    canvas#canvas { display:block; width:320px; height:480px; border-radius:12px; background:#000;
+                    image-rendering:pixelated; }
+    .ctl { display:flex; gap:8px; flex-wrap:wrap; align-items:center; max-width:520px; font-size:13px; }
+    .ctl input { background:#0a1419; border:1px solid #1f3540; color:#ccd6db; border-radius:8px; padding:6px 9px; font:inherit; }
+    .ctl input.base { width:210px; } .ctl input.tgt { width:170px; }
+    .ctl button { background:#07232a; border:1px solid #1f3540; color:#07E7FF; border-radius:8px; padding:6px 12px; font:inherit; cursor:pointer; }
+    #status { font-size:12px; color:#5d6e75; max-width:520px; text-align:center; line-height:1.5; min-height:2.4em; }
+    #status b { color:#80E080; } #status .err { color:#F56C66; }
+    a { color:#07E7FF; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <h1><b>oracle-term</b> — LVGL-WASM replica of the ESPHome terminal viewer</h1>
+  <div class="device"><canvas id="canvas" width="320" height="480" tabindex="-1"
+       oncontextmenu="event.preventDefault()"></canvas></div>
+
+  <div class="ctl">
+    <input class="base" id="base"   value="http://192.168.1.109:3456" title="maw base URL">
+    <input class="tgt"  id="target" value="52-esp32:esp32-exp" title="pane (session:windowname)">
+    <button id="go">▶ stream</button>
+    <button id="stop">⏸ stop</button>
+  </div>
+  <div id="status">Showing the built-in sample. Set the maw URL + pane and press <b>stream</b>.
+    <br>(maw must send <code>Access-Control-Allow-Origin</code>, or serve this page from the maw host / a proxy.)</div>
+
+  <script>
+    var statusEl = document.getElementById('status');
+    var timer = null;
+    function setStatus(html, err) { statusEl.innerHTML = err ? '<span class="err">'+html+'</span>' : html; }
+
+    async function pollOnce() {
+      var base = document.getElementById('base').value.replace(/\/+$/,'');
+      var tgt  = document.getElementById('target').value;
+      try {
+        var r = await fetch(base + '/api/capture?target=' + encodeURIComponent(tgt));
+        if (!r.ok) { setStatus('HTTP ' + r.status + ' for ' + tgt, true); return; }
+        var d = await r.json();
+        var content = d.content || '';
+        Module.ccall('term_set_content', null, ['string'], [content]);
+        try { Module.ccall('term_set_header', null, ['string'], [tgt]); } catch(e){}
+        setStatus('streaming <b>' + tgt + '</b> — ' + content.length + ' chars · ' + new Date().toLocaleTimeString());
+      } catch (e) {
+        setStatus('fetch failed (' + e.message + ') — CORS? wrong IP? maw down?', true);
+      }
+    }
+    function start() { if (timer) clearInterval(timer); pollOnce(); timer = setInterval(pollOnce, 3000); }
+    function stop()  { if (timer) { clearInterval(timer); timer = null; setStatus('stopped.'); } }
+    document.getElementById('go').onclick = function(){ if (window.Module && Module.calledRun) start(); else setStatus('wasm still loading…'); };
+    document.getElementById('stop').onclick = stop;
+
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      print: function(t){ console.log(t); },
+      printErr: function(t){ console.warn(t); },
+      onRuntimeInitialized: function(){ console.log('oracle-term wasm ready'); }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

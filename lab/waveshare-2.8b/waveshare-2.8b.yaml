@@ -1,0 +1,369 @@
+esphome:
+  name: waveshare-lcd
+  friendly_name: "Waveshare LCD 2.8B"
+  comment: "LearnIoT Lab — Waveshare ESP32-S3-LCD-2.8B, 480x640 RGB"
+  on_boot:
+    then:
+      - pcf8563.read_time:
+      - switch.turn_on: buzzer
+      - delay: 100ms
+      - switch.turn_off: buzzer
+      - delay: 100ms
+      - switch.turn_on: buzzer
+      - delay: 100ms
+      - switch.turn_off: buzzer
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  platform: esphome
+
+i2c:
+  id: i2c_bus
+  sda: GPIO15
+  scl: GPIO7
+  frequency: 800kHz
+
+pca9554:
+  - id: exio
+    i2c_id: i2c_bus
+    address: 0x20
+    pin_count: 8
+
+spi:
+  id: lcd_spi
+  clk_pin: GPIO2
+  mosi_pin: GPIO1
+
+switch:
+  - platform: gpio
+    name: "Buzzer"
+    id: buzzer
+    pin:
+      pca9554: exio
+      number: 7
+    restore_mode: ALWAYS_OFF
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO6
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "LCD Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# --- RTC: PCF8563 ---
+time:
+  - platform: pcf8563
+    id: rtc_time
+    address: 0x51
+    update_interval: never
+  - platform: sntp
+    timezone: "Asia/Bangkok"
+    on_time_sync:
+      then:
+        - pcf8563.write_time:
+
+display:
+  - platform: st7701s
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin:
+      pca9554: exio
+      number: 2
+    reset_pin:
+      pca9554: exio
+      number: 0
+    data_rate: 80MHz
+    spi_mode: MODE0
+    color_order: BGR
+    invert_colors: false
+    dimensions:
+      width: 480
+      height: 640
+    pclk_frequency: 16MHz
+    pclk_inverted: false
+    hsync_pulse_width: 10
+    hsync_back_porch: 70
+    hsync_front_porch: 60
+    vsync_pulse_width: 10
+    vsync_back_porch: 20
+    vsync_front_porch: 20
+    de_pin: GPIO40
+    hsync_pin: GPIO38
+    vsync_pin: GPIO39
+    pclk_pin: GPIO41
+    data_pins:
+      red:   [GPIO46, GPIO3, GPIO8, GPIO18, GPIO17]
+      green: [GPIO14, GPIO13, GPIO12, GPIO11, GPIO10, GPIO9]
+      blue:  [GPIO5, GPIO45, GPIO48, GPIO47, GPIO21]
+    init_sequence:
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xEF, 0x08]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xC0, 0x4F, 0x00]
+      - [0xC1, 0x10, 0x02]
+      - [0xC2, 0x07, 0x02]
+      - [0xCC, 0x10]
+      - [0xB0, 0x00, 0x10, 0x17, 0x0D, 0x11, 0x06, 0x05, 0x08, 0x07, 0x1F, 0x04, 0x11, 0x0E, 0x29, 0x30, 0x1F]
+      - [0xB1, 0x00, 0x0D, 0x14, 0x0E, 0x11, 0x06, 0x04, 0x08, 0x08, 0x20, 0x05, 0x13, 0x13, 0x26, 0x30, 0x1F]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+      - [0xB0, 0x65]
+      - [0xB1, 0x71]
+      - [0xB2, 0x82]
+      - [0xB3, 0x80]
+      - [0xB5, 0x42]
+      - [0xB7, 0x85]
+      - [0xB8, 0x20]
+      - [0xC0, 0x09]
+      - [0xC1, 0x78]
+      - [0xC2, 0x78]
+      - [0xD0, 0x88]
+      - [0xEE, 0x42]
+      - [0xE0, 0x00, 0x00, 0x02]
+      - [0xE1, 0x04, 0xA0, 0x06, 0xA0, 0x05, 0xA0, 0x07, 0xA0, 0x00, 0x44, 0x44]
+      - [0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+      - [0xE3, 0x00, 0x00, 0x22, 0x22]
+      - [0xE4, 0x44, 0x44]
+      - [0xE5, 0x0C, 0x90, 0xA0, 0xA0, 0x0E, 0x92, 0xA0, 0xA0, 0x08, 0x8C, 0xA0, 0xA0, 0x0A, 0x8E, 0xA0, 0xA0]
+      - [0xE6, 0x00, 0x00, 0x22, 0x22]
+      - [0xE7, 0x44, 0x44]
+      - [0xE8, 0x0D, 0x91, 0xA0, 0xA0, 0x0F, 0x93, 0xA0, 0xA0, 0x09, 0x8D, 0xA0, 0xA0, 0x0B, 0x8F, 0xA0, 0xA0]
+      - [0xEB, 0x00, 0x00, 0xE4, 0xE4, 0x44, 0x00, 0x40]
+      - [0xED, 0xFF, 0xF5, 0x47, 0x6F, 0x0B, 0xA1, 0xAB, 0xFF, 0xFF, 0xBA, 0x1A, 0xB0, 0xF6, 0x74, 0x5F, 0xFF]
+      - [0xEF, 0x08, 0x08, 0x08, 0x40, 0x3F, 0x64]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xE6, 0x16, 0x7C]
+      - [0xE8, 0x00, 0x0E]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0x11]
+      - delay 200ms
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xE8, 0x00, 0x0C]
+      - delay 150ms
+      - [0xE8, 0x00, 0x00]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0x35, 0x00]
+    update_interval: never
+    auto_clear_enabled: false
+
+font:
+  - file: "gfonts://Roboto"
+    id: title_font
+    size: 48
+    glyphs: " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,!?:-()[]/%"
+  - file: "gfonts://Roboto"
+    id: sub_font
+    size: 24
+    glyphs: " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,!?:-()[]/%+"
+  - file: "gfonts://Roboto"
+    id: big_time_font
+    size: 64
+    glyphs: " 0123456789:"
+
+lvgl:
+  displays:
+    - lcd
+  bg_color: 0x000000
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 0
+      radius: 0
+      border_width: 0
+      widgets:
+        # --- Clock card ---
+        - obj:
+            x: 16
+            y: 20
+            width: 448
+            height: 100
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 16
+            pad_all: 10
+            widgets:
+              - label:
+                  id: clock_label
+                  align: CENTER
+                  y: -5
+                  text: "00:00:00"
+                  text_color: 0xFFFFFF
+                  text_font: big_time_font
+              - label:
+                  id: date_label
+                  align: BOTTOM_MID
+                  text: "2026-05-28"
+                  text_color: 0x888888
+                  text_font: sub_font
+
+        # --- Name card ---
+        - obj:
+            x: 16
+            y: 135
+            width: 448
+            height: 100
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x00FF7F
+            radius: 16
+            pad_all: 16
+            widgets:
+              - label:
+                  align: CENTER
+                  y: -10
+                  text: "Yutthakit"
+                  text_color: 0xFFFF00
+                  text_font: title_font
+              - label:
+                  align: CENTER
+                  y: 28
+                  text: "LearnIoT Explorer"
+                  text_color: 0x00FF7F
+                  text_font: sub_font
+
+        # --- WiFi + Uptime cards ---
+        - obj:
+            x: 16
+            y: 250
+            width: 214
+            height: 80
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 16
+            pad_all: 14
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "WiFi"
+                  text_color: 0x4FB3FF
+                  text_font: sub_font
+              - label:
+                  id: wifi_status
+                  align: BOTTOM_LEFT
+                  text: "Connected"
+                  text_color: 0x00FF7F
+                  text_font: sub_font
+        - obj:
+            x: 250
+            y: 250
+            width: 214
+            height: 80
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 16
+            pad_all: 14
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "Uptime"
+                  text_color: 0x4FB3FF
+                  text_font: sub_font
+              - label:
+                  id: uptime_label
+                  align: BOTTOM_LEFT
+                  text: "0s"
+                  text_color: 0xFFFFFF
+                  text_font: sub_font
+
+        # --- Heartbeat footer ---
+        - obj:
+            x: 16
+            y: 350
+            width: 448
+            height: 50
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0xFFD27F
+            radius: 12
+            pad_all: 12
+            widgets:
+              - label:
+                  id: heartbeat
+                  align: CENTER
+                  text: "LearnIoT [0]"
+                  text_color: 0xFFD27F
+                  text_font: sub_font
+
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 1s
+    then:
+      - lvgl.label.update:
+          id: clock_label
+          text: !lambda |-
+            auto t = id(rtc_time).now();
+            if (!t.is_valid()) return std::string("--:--:--");
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t.hour, t.minute, t.second);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: date_label
+          text: !lambda |-
+            auto t = id(rtc_time).now();
+            if (!t.is_valid()) return std::string("----");
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%04d-%02d-%02d", t.year, t.month, t.day_of_month);
+            return std::string(buf);
+  - interval: 2s
+    then:
+      - lambda: |-
+          id(heartbeat_n) += 1;
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[48];
+            snprintf(buf, sizeof(buf), "LearnIoT [%d]", id(heartbeat_n));
+            return std::string(buf);
+      - lvgl.label.update:
+          id: uptime_label
+          text: !lambda |-
+            int s = id(heartbeat_n) * 2;
+            if (s < 60) {
+              char buf[16]; snprintf(buf, sizeof(buf), "%ds", s);
+              return std::string(buf);
+            }
+            char buf[16]; snprintf(buf, sizeof(buf), "%dm %ds", s/60, s%60);
+            return std::string(buf);

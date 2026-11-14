@@ -1,0 +1,28 @@
+# ESP-IDF build artifacts — keep sdkconfig.defaults, ignore the generated ones.
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Step 5: LittleFS asset source dir. Holds the third-party bufo GIF pack
+# (bufo.zone, NOT under this repo's MIT license — see lab/jc3248-pet/data/.../README.md).
+# Staged here so littlefs_create_partition_image can pack it; not committed.
+data/
+
+# "multiple firmware" output (tools/build-packs.sh) — reproducible build
+# artifacts, one app .bin per pack + shared bootloader/partition/storage.
+dist-firmware/
+
+# Web flasher build artifacts. Committed source: webflasher/{index.html,
+# serve.sh,stage.sh,README.md}; the bins + generated manifests are staged
+# by webflasher/stage.sh from dist-firmware/.
+webflasher/*.bin
+webflasher/manifest-*.json
+webflasher/preview/
+build-lcd28/
+build-sc01/
+
+# clangd config, per machine: tools/clangd-setup.sh writes it
+.clangd
+.cache/

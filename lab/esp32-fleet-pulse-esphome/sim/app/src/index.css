@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/sarabun/400.css";
+@import "@fontsource/sarabun/600.css";
+
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: #04080a; }

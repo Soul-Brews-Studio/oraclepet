@@ -1,0 +1,83 @@
+# Web-flashable build = the offline ON-TAP poster + Wi-Fi provisioning over Improv-Serial.
+# After flashing from the browser (ESP Web Tools / WebSerial), the install dialog shows
+# "Configure Wi-Fi" — pick an SSID and set the password right there. The poster still runs.
+#
+# Built by neo-genesis (2026-06-26) for neogenesis.buildwithoracle.com/flash.
+# Wi-Fi icon + clock overlay added by esp32-oracle (2026-06-26).
+
+packages:
+  poster: !include jc3248w535-offline.yaml
+
+esphome:
+  name: oracle-face-web
+  friendly_name: Neo Genesis (Wi-Fi)
+
+# AP fallback so the device is reachable before it has credentials; Improv sets the real network.
+wifi:
+  ap:
+    ssid: "Neo Genesis Setup"
+
+# Provision Wi-Fi over the USB serial link straight from the web flasher.
+improv_serial:
+
+# SNTP clock (web build has Wi-Fi, so real time is available)
+time:
+  - platform: sntp
+    id: sntp_time
+
+# Status icon font: Material Icons wifi (U+E63E) / wifi_off (U+E648).
+# Same TTF the poster uses for chip/drop/flame.
+font:
+  - file: "sim/fonts/MaterialIcons-Regular.ttf"
+    id: icons_status
+    size: 18
+    glyphs: ["", ""]
+
+# Overlay: Wi-Fi icon + clock on LVGL top_layer (renders above every page,
+# so it merges with the poster's lvgl: block without editing its widgets).
+# BOTTOM corners — clear of the header row (y=14) and the centered
+# heartbeat bar (width 234) on the 320 px-wide screen.
+lvgl:
+  top_layer:
+    widgets:
+      - label:
+          id: wifi_icon
+          align: BOTTOM_LEFT
+          x: 10
+          y: -8
+          text: ""
+          text_color: 0x444444
+          text_font: icons_status
+      - label:
+          id: clock_label
+          align: BOTTOM_RIGHT
+          x: -10
+          y: -8
+          text: "--:--"
+          text_color: 0x888888
+          text_font: noto_14
+
+# Drive the overlay every 2 s: Wi-Fi colour/glyph + clock.
+interval:
+  - interval: 2s
+    then:
+      - if:
+          condition: wifi.connected
+          then:
+            - lvgl.label.update:
+                id: wifi_icon
+                text: ""
+                text_color: 0x00FF7F
+          else:
+            - lvgl.label.update:
+                id: wifi_icon
+                text: ""
+                text_color: 0x444444
+      - lvgl.label.update:
+          id: clock_label
+          text: !lambda |-
+            auto now = id(sntp_time).now();
+            if (!now.is_valid()) return std::string("--:--");
+            char buf[6];
+            snprintf(buf, sizeof(buf), "%02d:%02d", now.hour, now.minute);
+            return std::string(buf);

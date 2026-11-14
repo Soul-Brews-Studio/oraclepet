@@ -1,0 +1,249 @@
+esphome:
+  name: oracle-face
+  friendly_name: Oracle Face
+  comment: "320x480 QSPI"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG   # keep /dev/cu.usbmodem* alive at runtime
+
+# (offline build: api/ota/wifi/captive_portal/mqtt stripped — static display only)
+
+# ── QSPI bus for the AXS15231 display ──────────────────────────────
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+# ── Backlight on GPIO 1, LEDC PWM ──────────────────────────────────
+output:
+  - platform: ledc
+    pin: 1
+    id: backlight_pwm
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# ── Display: AXS15231 over QSPI, 320x480 ───────────────────────────
+display:
+  - platform: mipi_spi
+    model: AXS15231
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin: 45
+    dimensions:
+      width: 320
+      height: 480
+    color_order: rgb
+    invert_colors: false
+    data_rate: 40MHz
+    update_interval: never
+    auto_clear_enabled: false
+
+# ── Fonts: Noto Sans (carries ψ, U+03C8) ───────────────────────────
+font:
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_14
+    size: 14
+    glyphs: &noto_glyphs " ψabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?:-[]()/%°+×"
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_22
+    size: 22
+    glyphs: *noto_glyphs
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_28
+    size: 28
+    glyphs: *noto_glyphs
+  # Material Icons Regular subset — codepoints kept as YAML \u escapes so
+  # they render readably in GitHub/diff tools (the actual chars are in the
+  # Unicode Private Use Area so most fonts show ▢; ESPHome treats them as
+  # UTF-8 and looks them up in the TTF either way).
+  #   U+E322 = memory (chip)
+  #   U+E798 = opacity (water drop)
+  #   U+EF55 = local_fire_department (flame)
+  #   U+E65F = hourglass_top / auto_awesome (sparkles)
+  - file: "sim/fonts/MaterialIcons-Regular.ttf"
+    id: icons_18
+    size: 18
+    glyphs: ["\uE322", "\uE798", "\uEF55", "\uE65F"]
+  - file: "sim/fonts/MaterialIcons-Regular.ttf"
+    id: icons_22
+    size: 22
+    glyphs: ["\uE322", "\uE798", "\uEF55", "\uE65F"]
+
+# ── LVGL: brewing dashboard fed by MQTT ────────────────────────────
+lvgl:
+  displays:
+    - lcd
+  bg_color: 0x000000        # display background — covers anything outside pages
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 0
+      radius: 0
+      border_width: 0
+      widgets:
+        # ── Header: brewery + AI tag ──
+        - label:
+            align: TOP_LEFT
+            x: 12
+            y: 14
+            text: "THONG PRADIT × CAT LAB"
+            text_color: 0x888888
+            text_font: noto_14
+        - label:
+            align: TOP_RIGHT
+            x: -12
+            y: 14
+            text: "BREWED WITH AI"
+            text_color: 0xFFD27F
+            text_font: noto_14
+        # ── Hero: name + style ──
+        - label:
+            id: batch_name
+            align: TOP_MID
+            y: 58
+            text: "NEO GENESIS"
+            text_color: 0xFFFFFF
+            text_font: noto_28
+        - label:
+            id: batch_style
+            align: TOP_MID
+            y: 100
+            text: "West Coast IPA"
+            text_color: 0x4FB3FF
+            text_font: noto_22
+        # ── ON TAP badge ──
+        - obj:
+            align: TOP_MID
+            y: 150
+            width: 200
+            height: 58
+            bg_color: 0x07251A
+            bg_opa: COVER
+            border_width: 2
+            border_color: 0x00FF7F
+            radius: 29
+            pad_all: 0
+            widgets:
+              - label:
+                  id: batch_status
+                  align: CENTER
+                  text: "ON TAP"
+                  text_color: 0x00FF7F
+                  text_font: noto_28
+        # ── Big numbers: ABV + IBU ──
+        - label:
+            id: batch_abv
+            align: TOP_MID
+            x: -68
+            y: 234
+            text: "6.66%"
+            text_color: 0xFFFFFF
+            text_font: noto_28
+        - label:
+            align: TOP_MID
+            x: -68
+            y: 278
+            text: "ABV"
+            text_color: 0x4FB3FF
+            text_font: noto_14
+        - label:
+            id: batch_ibu
+            align: TOP_MID
+            x: 72
+            y: 234
+            text: "66"
+            text_color: 0xFFFFFF
+            text_font: noto_28
+        - label:
+            align: TOP_MID
+            x: 72
+            y: 278
+            text: "IBU"
+            text_color: 0x4FB3FF
+            text_font: noto_14
+        # ── Hops trinity ──
+        - label:
+            align: TOP_MID
+            y: 324
+            text: "Citra - Simcoe - Mosaic"
+            text_color: 0xFFFFFF
+            text_font: noto_22
+        # ── divider ──
+        - obj:
+            align: TOP_MID
+            y: 372
+            width: 244
+            height: 2
+            bg_color: 0x1F3540
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+        # ── footer stats ──
+        - label:
+            align: TOP_MID
+            y: 388
+            text: "23 kegs - 530 L - Chiang Mai"
+            text_color: 0x888888
+            text_font: noto_14
+        # ── heartbeat (keep id for interval) ──
+        - obj:
+            align: BOTTOM_MID
+            y: -10
+            width: 234
+            height: 30
+            bg_color: 0x1A1208
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0xFFD27F
+            radius: 12
+            pad_all: 0
+            widgets:
+              - label:
+                  id: heartbeat
+                  align: CENTER
+                  text: "TENDING THE FLAME [0]"
+                  text_color: 0xFFD27F
+                  text_font: noto_14
+
+# ── Heartbeat: tick a counter every 2s, mirror to log + footer ─────
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          id(heartbeat_n) += 1;
+      - logger.log:
+          format: "[%d] tending the flame..."
+          args: ['id(heartbeat_n)']
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[48];
+            snprintf(buf, sizeof(buf), "TENDING THE FLAME [%d]", id(heartbeat_n));
+            return std::string(buf);

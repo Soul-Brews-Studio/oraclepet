@@ -1,0 +1,563 @@
+<!doctype html>
+<!--
+  OraclePet in the browser: connect to a desk pet over Web Bluetooth and update it, send packs and
+  apps, test its speaker and listen through its mic. All the protocol work is in oraclepet.js;
+  this page only wires buttons to it. Serve it on https or localhost (see README.md).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OraclePet</title>
+<style>
+  :root { --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --dim: #6b6a66; --line: #e2e0da; --accent: #3b6ea8; --ok: #2f7d4f; --bad: #b3412e; --warn: #9a6a12; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --card: #20201e; --ink: #ecebe6; --dim: #a19f98; --line: #34332f; --accent: #7aa7da; --ok: #6cc08e; --bad: #e57f6c; --warn: #d8ae5a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  h1 { font-size: 18px; margin: 0 8px 0 0; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  h3 { font-size: 13px; margin: 12px 0 6px; color: var(--dim); font-weight: 600; }
+  button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=text], input[type=number], select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
+  input[type=number] { width: 5em; }
+  .pill { font-size: 13px; padding: 2px 10px; border-radius: 99px; background: var(--bg); color: var(--dim); }
+  .pill.live { color: var(--ok); }
+  #progress { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 10px; align-items: center; }
+  #progress progress { width: 100%; height: 12px; accent-color: var(--accent); }
+  #progress.failed progress { accent-color: var(--bad); }
+  #pct { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; font-weight: 600; }
+  #phase { grid-column: 1 / -1; font-size: 13px; color: var(--dim); min-height: 1.4em; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; padding: 12px 16px 24px; max-width: 1200px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 14px; }
+  dt { color: var(--dim); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .note { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .banner { margin: 10px 16px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--warn); color: var(--warn); }
+  .stack { display: grid; gap: 8px; }
+  .packs > div { border-top: 1px solid var(--line); padding: 6px 0; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  meter { width: 120px; }
+  #log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 280px; overflow: auto; margin: 0; white-space: pre-wrap; }
+  #log .bad { color: var(--bad); } #log .event { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>OraclePet</h1>
+    <span id="link" class="pill">Not connected</span>
+    <button id="connect" class="primary">Connect a pet</button>
+    <button id="disconnect" disabled>Disconnect</button>
+    <button id="sim" title="An in-memory pet (simpet.js): try the page without one">Try a simulated pet</button>
+  </div>
+  <div id="progress">
+    <progress id="bar" max="100" value="0"></progress>
+    <span id="pct">0%</span>
+    <button id="cancel" disabled>Cancel</button>
+    <span id="phase">Nothing to send</span>
+  </div>
+</header>
+<p id="support" class="banner" hidden></p>
+
+<main>
+  <section class="card" id="petcard">
+    <h2>Pet</h2>
+    <dl id="info"><dt>Status</dt><dd>Press <b>Connect a pet</b> and pick a Claude-XXXX in the list.</dd></dl>
+    <h3>Animation packs on the pet</h3>
+    <div class="chips" id="petpacks"><span class="note">None yet</span></div>
+    <h3>Apps on the pet</h3>
+    <div class="chips" id="petapps"><span class="note">None yet</span></div>
+    <div class="row" style="margin-top:8px"><button id="stopapp" disabled>Stop the app</button></div>
+    <div id="simtools" hidden>
+      <h3>Simulated pet</h3>
+      <div class="row">
+        <button id="simtap">Touch it</button>
+        <button id="simsay">Have an app call pet.say()</button>
+        <button id="simfw">Make a sample firmware</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Firmware</h2>
+    <div class="stack">
+      <input type="file" id="fwfile" accept=".bin,application/octet-stream">
+      <div id="fwinfo" class="note">Pick an app image: build/jc3248_pet_idf.bin or build/oraclepet_lcd28.bin. It is checked against the pet's board before anything is sent.</div>
+      <div class="row"><button id="install" class="primary" disabled>Install on the pet</button></div>
+    </div>
+    <p class="note">The pet writes the image to its idle slot, checks it, restarts into it and keeps the old one if the new one fails to start.</p>
+  </section>
+
+  <section class="card">
+    <h2>Animation pack</h2>
+    <div class="stack">
+      <input type="file" id="packdir" webkitdirectory multiple>
+      <div id="packlist" class="packs"><span class="note">Pick a pack folder (manifest.json + GIFs), or a folder of packs such as lab/buddy/characters.</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Pet app</h2>
+    <div class="stack">
+      <input type="file" id="wasmfile" accept=".wasm,application/wasm">
+      <div id="wasminfo" class="note">A WebAssembly app built with lab/pet-sdk. Its file name becomes its name (a-z 0-9 - _).</div>
+      <div class="row">
+        <label><input type="checkbox" id="runapp" checked> run it</label>
+        <button id="sendapp" class="primary" disabled>Send to the pet</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Sound</h2>
+    <div class="stack">
+      <div class="row"><button id="selftest" disabled>Test speaker</button><span id="selftestout" class="note"></span></div>
+      <div class="row">
+        <button id="listen" disabled>Listen</button>
+        <label><input type="number" id="secs" min="0.1" max="10" step="0.5" value="3"> s</label>
+        <label><input type="checkbox" id="sendaudio" checked> bring the audio back</label>
+      </div>
+      <div id="heard" class="note">The pet's mic (the 2.8in lcd28 board has one) records and measures what it hears.</div>
+      <div class="row">
+        <button id="playrec" disabled>Play the recording here</button>
+        <button id="backtopet" disabled>Play it on the pet</button>
+        <a id="saverec" download="oraclepet-mic.wav" hidden>Save .wav</a>
+      </div>
+      <label class="row">Play a sound file on the pet <input type="file" id="soundfile" accept="audio/*"></label>
+    </div>
+    <p class="note"><b>Speech:</b> the pet has no voice of its own; the host turns text into a clip. A browser cannot capture what its speech synthesis says, so this page cannot make the pet talk. OraclePet on the Mac can (or a host with espeak-ng or SAPI). A recording or a sound file works here.</p>
+    <label class="note"><input type="checkbox" id="speak"> Speak the pet's <code>pet.say()</code> lines on this computer instead</label>
+  </section>
+
+  <section class="card">
+    <h2>Heartbeat</h2>
+    <div class="stack">
+      <div class="row">
+        <select id="hbstate"><option value="idle">idle</option><option value="busy">busy</option><option value="attention">needs you</option><option value="sleep">asleep</option></select>
+        <input type="text" id="hbwho" placeholder="who (name under the pet)" size="16">
+      </div>
+      <input type="text" id="hbmsg" placeholder="status line under the HUD">
+      <div class="row">
+        <button id="hbsend" disabled>Send</button>
+        <label><input type="checkbox" id="hbkeep"> every 5 s</label>
+      </div>
+    </div>
+    <p class="note">Sets the pet's state, clock and status line by hand. A heartbeat older than 30 s counts as idle.</p>
+  </section>
+
+  <section class="card wide">
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script type="module">
+import * as op from './oraclepet.js';
+
+const $ = (id) => document.getElementById(id);
+let pet = null;
+let sim = null; // the SimPet behind `pet`, in the simulated mode
+let makeImage = null; // simpet.js's sample-firmware maker, loaded with it
+let firmware = null; // { name, data, info } from the picker
+let packs = []; // packsFromFiles() of the folder picker
+let recording = null; // the last LISTEN result
+let beat = null;
+let audio = null;
+
+// ---- log -------------------------------------------------------------------------------------
+
+function log(message, kind = '') {
+  const line = document.createElement('div');
+  line.className = kind;
+  line.textContent = `${new Date().toLocaleTimeString([], { hour12: false })}  ${message}`;
+  const box = $('log');
+  const atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+  box.append(line);
+  while (box.childElementCount > 400) box.firstElementChild.remove();
+  if (atEnd) box.scrollTop = box.scrollHeight;
+}
+
+/** Run a pet call; log what it rejects with unless the pet logged it already. */
+async function act(promise) {
+  try {
+    return await promise;
+  } catch (e) {
+    if (!e?.logged) log(e?.message ?? String(e), 'bad');
+    return undefined;
+  }
+}
+
+// ---- support ---------------------------------------------------------------------------------
+
+{
+  const why = [];
+  if (!window.isSecureContext) why.push('Web Bluetooth needs https or http://localhost; this page is served on neither.');
+  if (!navigator.bluetooth) {
+    why.push('This browser has no Web Bluetooth. Use Chrome or Edge on macOS, Windows, ChromeOS or Android (on Linux it may need chrome://flags/#enable-experimental-web-platform-features). Firefox and Safari do not have it. The simulated pet works anywhere.');
+    $('connect').disabled = true;
+  } else {
+    navigator.bluetooth.getAvailability?.().then((ok) => {
+      if (!ok) {
+        $('support').textContent = 'No Bluetooth adapter is available (or Bluetooth is off).';
+        $('support').hidden = false;
+      }
+    });
+  }
+  if (why.length) {
+    $('support').textContent = why.join(' ');
+    $('support').hidden = false;
+  }
+}
+
+// ---- connecting ------------------------------------------------------------------------------
+
+$('connect').onclick = async () => {
+  try {
+    const next = await op.Pet.request(); // the browser's chooser, filtered to Claude-*
+    await attach(next, null);
+  } catch (e) {
+    if (e?.name !== 'NotFoundError') log(e?.message ?? String(e), 'bad'); // NotFoundError: the chooser was closed
+  }
+};
+
+$('sim').onclick = async () => {
+  const simpet = await import('./simpet.js');
+  makeImage = simpet.makeImage;
+  const s = new simpet.SimPet();
+  await attach(new op.Pet(s), s);
+};
+
+$('disconnect').onclick = () => act(pet?.disconnect());
+
+async function attach(next, simPet) {
+  if (pet) await pet.disconnect().catch(() => {});
+  pet = next;
+  sim = simPet;
+  pet.on('log', (m) => log(m));
+  pet.on('connect', render);
+  pet.on('disconnect', render);
+  pet.on('info', render);
+  pet.on('progress', showProgress);
+  pet.on('job', (j) => {
+    if (j.state === 'start') $('progress').classList.remove('failed');
+    if (j.state === 'failed') $('progress').classList.add('failed');
+  });
+  pet.on('tap', () => log('The pet was touched', 'event'));
+  pet.on('say', ({ text }) => {
+    log(`An app on the pet says “${text}”`, 'event');
+    if ($('speak').checked && 'speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  });
+  render();
+  await act(pet.connect());
+  render();
+}
+
+// ---- what the pet runs -------------------------------------------------------------------------
+
+function chips(box, names, active, onPick) {
+  box.replaceChildren();
+  if (!names.length) {
+    box.innerHTML = '<span class="note">None</span>';
+    return;
+  }
+  for (const name of names) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.className = name === active ? 'on' : '';
+    b.title = name === active ? 'showing / running now' : '';
+    b.disabled = !canSend();
+    b.onclick = () => onPick(name);
+    box.append(b);
+  }
+}
+
+const canSend = () => !!pet?.connected && !!pet.link.hasOTA;
+
+function render() {
+  const on = !!pet?.connected;
+  const info = pet?.info;
+  $('link').textContent = !pet ? 'Not connected' : on ? `${pet.name}${sim ? ' (simulated)' : ''}` : `${pet.name}: not connected`;
+  $('link').classList.toggle('live', on);
+  $('disconnect').disabled = !on;
+  $('simtools').hidden = !sim;
+
+  const rows = [];
+  if (pet && !on) rows.push(['Status', 'Not connected (it reconnects by itself for a minute after a drop)']);
+  if (on && !pet.link.hasOTA) rows.push(['Status', 'Connected, but this firmware has no OTA service: flash it once over USB']);
+  if (info) {
+    rows.push(
+      ['Board', `${info.board || 'unknown'}${info.project ? ` (${info.project})` : ''}`],
+      ['Firmware', `${info.version}, built ${info.built}`],
+      ['Slot', `${info.slot}${info.state ? `, ${info.state}` : ''}`],
+      ['SHA', info.sha || '–'],
+      ['Showing', info.pack || '–'],
+      ['Running', info.app || 'no app'],
+      ['Free storage', `${info.freeKB} KB`],
+    );
+    if (info.appError) rows.push(['App error', info.appError]);
+  }
+  if (rows.length) {
+    const dl = $('info');
+    dl.replaceChildren();
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      const dd = document.createElement('dd');
+      dt.textContent = k;
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+  }
+  chips($('petpacks'), info?.packs ?? [], info?.pack, (name) => act(pet.select(name)));
+  chips($('petapps'), info?.apps ?? [], info?.app, (name) => act(pet.run(name)));
+  $('stopapp').disabled = !canSend() || !info?.app;
+  for (const id of ['selftest', 'listen']) $(id).disabled = !canSend();
+  $('hbsend').disabled = !on;
+  $('sendapp').disabled = !canSend() || !$('wasmfile').files[0];
+  $('backtopet').disabled = !canSend() || !recording?.pcm;
+  renderFirmware();
+  renderPacks();
+}
+
+$('stopapp').onclick = () => act(pet.stop());
+
+// ---- progress --------------------------------------------------------------------------------
+
+const PHASES = { starting: 'starting', sending: 'sending', finishing: 'finishing', rebooting: 'the pet restarts into it', idle: '' };
+
+function showProgress(p) {
+  const pct = Math.floor(p.overall * 100);
+  $('bar').value = pct;
+  $('pct').textContent = `${pct}%`;
+  $('cancel').disabled = !p.busy;
+  if (!p.busy) {
+    $('phase').textContent = 'Nothing to send';
+    return;
+  }
+  const kb = (n) => (n / 1024).toFixed(n < 10240 ? 1 : 0);
+  $('phase').textContent = [
+    p.label,
+    p.jobs > 1 ? `job ${p.job} of ${p.jobs}` : '',
+    p.files > 1 ? `file ${p.file} of ${p.files}` : '',
+    PHASES[p.phase] ?? p.phase,
+    p.total ? `${kb(p.acked)} of ${kb(p.total)} KB` : '',
+    p.bytesPerSecond && p.phase === 'sending' ? `${kb(p.bytesPerSecond)} KB/s` : '',
+    p.queued ? `${p.queued} waiting` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+$('cancel').onclick = () => pet?.cancel();
+
+// ---- firmware --------------------------------------------------------------------------------
+
+function useFirmware(name, data) {
+  firmware = { name, data, info: op.imageInfo(data) };
+  renderFirmware();
+}
+
+$('fwfile').onchange = async () => {
+  const f = $('fwfile').files[0];
+  if (f) useFirmware(f.name, new Uint8Array(await f.arrayBuffer()));
+};
+
+function renderFirmware() {
+  if (!firmware) return;
+  const { info, data, name } = firmware;
+  const problem = op.firmwareProblem(data, pet?.info);
+  const box = $('fwinfo');
+  box.replaceChildren();
+  const about = document.createElement('div');
+  about.textContent = info
+    ? `${name}: ${info.board} (${info.project}), ${info.version}, built ${info.built}, sha ${info.sha}, ${Math.round(data.length / 1024)} KB`
+    : `${name}: ${Math.round(data.length / 1024)} KB`;
+  const verdict = document.createElement('div');
+  if (problem) {
+    verdict.className = 'bad';
+    verdict.textContent = problem;
+  } else if (!pet?.info) {
+    verdict.className = 'warn';
+    verdict.textContent = 'Connect a pet to check its board.';
+  } else {
+    verdict.className = 'ok';
+    verdict.textContent = op.sameBuild(pet.info, info) ? 'Fits this pet. It already runs this build.' : 'Fits this pet.';
+  }
+  box.append(about, verdict);
+  $('install').disabled = !!problem || !canSend();
+}
+
+$('install').onclick = () => firmware && act(pet.ota(firmware.data));
+
+// ---- animation packs ---------------------------------------------------------------------------
+
+$('packdir').onchange = () => {
+  packs = op.packsFromFiles($('packdir').files);
+  if (!packs.length) log('No pack in that folder: a pack is a folder with manifest.json and GIFs', 'bad');
+  renderPacks();
+};
+
+function renderPacks() {
+  if (!$('packdir').files.length) return;
+  const box = $('packlist');
+  box.replaceChildren();
+  if (!packs.length) {
+    box.innerHTML = '<span class="note bad">No pack there: a pack is a folder with manifest.json and GIFs.</span>';
+    return;
+  }
+  for (const p of packs) {
+    const row = document.createElement('div');
+    const text = document.createElement('span');
+    text.textContent = `${p.name}: ${p.files.length} files, ${Math.round(p.bytes / 1024)} KB`;
+    if (p.problems.length) {
+      text.className = 'bad';
+      text.textContent += ` (${p.problems.join('; ')})`;
+    }
+    const send = document.createElement('button');
+    send.textContent = pet?.info?.packs.includes(p.name) ? 'Send again' : 'Send';
+    send.disabled = !canSend() || p.problems.length > 0;
+    send.onclick = () => act(pet.pack(p));
+    row.append(text, send);
+    box.append(row);
+  }
+}
+
+// ---- apps ------------------------------------------------------------------------------------
+
+$('wasmfile').onchange = () => {
+  const f = $('wasmfile').files[0];
+  $('wasminfo').textContent = f ? `${f.name}: ${f.size} bytes, sent as apps/${f.name.replace(/\.wasm$/i, '').toLowerCase()}.wasm` : '';
+  render();
+};
+
+$('sendapp').onclick = () => act(pet.app($('wasmfile').files[0], $('runapp').checked));
+
+// ---- sound -----------------------------------------------------------------------------------
+
+$('selftest').onclick = async () => {
+  $('selftestout').textContent = 'Beeping…';
+  const r = await act(pet.selftest());
+  $('selftestout').textContent = r ? r.message : '';
+};
+
+$('listen').onclick = async () => {
+  const ms = Math.round(Number($('secs').value || 3) * 1000);
+  $('heard').textContent = `Listening for ${(ms / 1000).toFixed(1)} s…`;
+  const r = await act(pet.listen(ms, $('sendaudio').checked));
+  if (!r) {
+    $('heard').textContent = '';
+    return;
+  }
+  recording = r;
+  const box = $('heard');
+  box.replaceChildren();
+  const line = (label, value, meter) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.append(Object.assign(document.createElement('span'), { textContent: `${label}: ${value}` }));
+    if (meter != null) row.append(Object.assign(document.createElement('meter'), { min: 0, max: 32767, value: meter }));
+    box.append(row);
+  };
+  line('Level (rms)', `${r.rms} of 32767, quietest 100 ms ${r.floor}`, r.rms);
+  line('Peak', r.peak, r.peak);
+  line('Strongest', `${r.freq} Hz, ${r.db >= 0 ? '+' : ''}${r.db.toFixed(1)} dB above the median band`);
+  line('Recorded', `${r.samples} samples (${(r.samples / 16000).toFixed(1)} s at 16 kHz)${r.pcm ? '' : ', audio not brought back'}`);
+  if (r.estimated) line('Note', 'the pet\'s own numbers did not arrive; these were measured here from the recording');
+  if (r.pcm) {
+    const link = $('saverec');
+    if (link.href) URL.revokeObjectURL(link.href);
+    link.href = URL.createObjectURL(new Blob([op.wav(r.pcm, r.sampleRate)], { type: 'audio/wav' }));
+  }
+  $('saverec').hidden = !r.pcm;
+  $('playrec').disabled = !r.pcm;
+  render();
+};
+
+function playHere(pcm, rate) {
+  audio ??= new AudioContext();
+  const buf = audio.createBuffer(1, pcm.length, rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = audio.createBufferSource();
+  src.buffer = buf;
+  src.connect(audio.destination);
+  src.start();
+}
+
+$('playrec').onclick = () => recording?.pcm && playHere(recording.pcm, recording.sampleRate);
+
+/** Prepare PCM the way hosts prepare speech (trim, normalise), then stream it to the speaker. */
+function streamToPet(pcm, what) {
+  const clip = op.tidy(pcm, { maxSeconds: 30 }); // the pet plays clips of up to 30 s
+  if (!clip.length) return log(`${what} is all quiet: nothing to play`, 'bad');
+  return act(pet.stream(op.encodePSND(clip)));
+}
+
+$('backtopet').onclick = () => recording?.pcm && streamToPet(recording.pcm, 'The recording');
+
+$('soundfile').onchange = async () => {
+  const f = $('soundfile').files[0];
+  if (!f) return;
+  if (!canSend()) {
+    $('soundfile').value = '';
+    return log('Connect a pet first', 'bad');
+  }
+  try {
+    // decode with WebAudio, then let an OfflineAudioContext resample to 16 kHz mono
+    const ctx = new AudioContext();
+    const decoded = await ctx.decodeAudioData(await f.arrayBuffer());
+    ctx.close();
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000);
+    const src = off.createBufferSource();
+    src.buffer = decoded;
+    src.connect(off.destination);
+    src.start();
+    const out = await off.startRendering();
+    log(`${f.name}: ${decoded.duration.toFixed(1)} s, sending as 16 kHz IMA ADPCM`);
+    await streamToPet(op.pcmFromFloat(out.getChannelData(0)), f.name);
+  } catch (e) {
+    log(`Could not read ${f.name} as audio: ${e.message}`, 'bad');
+  } finally {
+    $('soundfile').value = '';
+  }
+};
+
+// ---- heartbeat -------------------------------------------------------------------------------
+
+function heartbeatOnce() {
+  const who = $('hbwho').value.trim();
+  return pet.heartbeat({ ...op.STATE_COUNTS[$('hbstate').value], msg: $('hbmsg').value, who: who || undefined });
+}
+
+$('hbsend').onclick = async () => {
+  const line = await act(heartbeatOnce());
+  if (line) log(`Heartbeat ${line.trim()}`);
+};
+
+$('hbkeep').onchange = () => {
+  clearInterval(beat);
+  beat = $('hbkeep').checked ? setInterval(() => pet?.connected && heartbeatOnce().catch(() => {}), 5000) : null;
+};
+
+// ---- the simulated pet's extras ------------------------------------------------------------------
+
+$('simtap').onclick = () => sim?.tap();
+$('simsay').onclick = () => sim?.say('Hello from the simulated pet');
+$('simfw').onclick = () => {
+  if (!sim) return;
+  useFirmware('sample-firmware.bin', makeImage({ project: sim.project, version: `v2.${Date.now() % 1000}`, size: 120_000 }));
+  log('A sample firmware for the simulated pet is ready: press Install on the pet');
+};
+
+render();
+</script>
+</body>
+</html>

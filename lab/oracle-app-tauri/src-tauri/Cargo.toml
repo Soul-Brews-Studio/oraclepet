@@ -1,0 +1,27 @@
+[package]
+name = "oracle-app-tauri"
+version = "0.1.0"
+description = "Tauri desktop dashboard for Claude Code status — same render surface as the ESP32 firmware."
+license = "MIT"
+edition = "2024"
+
+[lib]
+name = "oracle_app_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+oracle-beacon = { path = "../../beacon/cli-rs", default-features = false, package = "oracle-beacon" }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+incremental = false
+opt-level = "s"
+strip = true

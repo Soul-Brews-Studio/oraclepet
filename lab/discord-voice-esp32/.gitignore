@@ -1,0 +1,8 @@
+# sdkconfig holds the bot token and the WiFi password (menuconfig): never commit it
+sdkconfig
+sdkconfig.old
+build/
+managed_components/
+dependencies.lock
+# clangd config, per machine: ../jc3248-pet-idf/tools/clangd-setup.sh . writes it
+.clangd

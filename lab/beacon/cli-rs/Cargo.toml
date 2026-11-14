@@ -1,0 +1,50 @@
+[package]
+name = "oracle-beacon"
+version = "0.1.0"
+edition = "2024"
+description = "Claude Code status broadcaster — reads statusline JSON, format-checks, advertises via BLE (native) or dry-runs (WASM/WASI). Same wire format as the bash + python broadcaster pair."
+license = "MIT"
+
+[lib]
+name = "oracle_beacon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "oracle-beacon"
+path = "src/main.rs"
+
+[[bin]]
+name = "oracle-beacon-tray"
+path = "src/bin/oracle-beacon-tray.rs"
+required-features = ["tray"]
+
+[features]
+default = []
+tray = ["dep:tray-icon", "dep:winit", "dep:image"]
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+# Tray icon (menu-bar app) — optional, behind `--features tray`.
+# winit gives us an event loop on macOS; tray-icon plugs into it.
+tray-icon = { version = "0.21", optional = true }
+winit = { version = "0.30", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+
+# macOS-only: native CoreBluetooth peripheral advertising via the objc2
+# bindings. No subprocess to Python. WASM/WASI build skips these.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-bluetooth = { version = "0.3", features = ["CBPeripheralManager", "CBPeripheralManagerConstants", "CBAdvertisementData", "CBManager"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSError", "NSArray"] }
+dispatch2 = "0.3"
+block2 = "0.6"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+opt-level = "z"   # smaller binary for WASM target

@@ -1,0 +1,23 @@
+menu "OraclePet Discord voice lab"
+
+    config DVL_WIFI_SSID
+        string "WiFi SSID (2.4 GHz)"
+        default ""
+
+    config DVL_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+
+    config DVL_BOT_TOKEN
+        string "Discord bot token (kept only in sdkconfig, which is gitignored)"
+        default ""
+
+    config DVL_GUILD_ID
+        string "Guild (server) id"
+        default ""
+
+    config DVL_CHANNEL_ID
+        string "Voice channel id"
+        default ""
+
+endmenu

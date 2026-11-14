@@ -1,0 +1,9 @@
+build/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+.clangd
+# the pinned esp-webrtc-solution checkout and the demo TLS key/cert (tools/prepare.sh)
+.work/
+main/certs/

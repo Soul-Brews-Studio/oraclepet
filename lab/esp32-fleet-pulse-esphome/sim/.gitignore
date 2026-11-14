@@ -1,0 +1,12 @@
+# Emscripten/CMake build output + FetchContent'd LVGL — re-derivable
+build/
+build-wasm/
+_deps/
+*.wasm
+*.o
+build-mod/
+dist-module/
+dist-standalone/
+app/node_modules/
+app/dist/
+app/public/oracle_term_sim.*

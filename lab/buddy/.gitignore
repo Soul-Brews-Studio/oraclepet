@@ -1,0 +1,9 @@
+# runtime secrets — never commit
+bridge/wifi_creds.json
+secrets.yaml
+*.key
+*.pem
+# build artifacts
+.pio/
+build/
+*.o

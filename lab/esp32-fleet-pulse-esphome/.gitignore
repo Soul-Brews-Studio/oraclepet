@@ -1,0 +1,4 @@
+# ESPHome secrets (real wifi creds) — NEVER commit
+secrets.yaml
+# ESPHome build output
+.esphome/

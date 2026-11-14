@@ -1,0 +1,9 @@
+build/
+build-web/
+_deps/
+*.o
+*.a
+*.wasm
+oracle_face_sim
+oracle_face_sim_v1
+oracle_face_sim_v2

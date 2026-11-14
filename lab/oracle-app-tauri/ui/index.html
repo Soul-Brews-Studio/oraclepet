@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>oracle-app-tauri — Claude Code dashboard</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <main class="dashboard">
+    <!-- identity group — left column in landscape, top in portrait -->
+    <div class="pane-id">
+      <h1 class="header">ψ esp32-oracle</h1>
+      <div class="model" id="model">—</div>
+      <div class="model-ctx" id="model-ctx">waiting for broadcast…</div>
+    </div>
+
+    <!-- stats group — right column in landscape, middle in portrait -->
+    <div class="pane-stats">
+      <section class="section">
+        <div class="section-title">CONTEXT</div>
+        <div class="bar"><div class="bar-fill ctx" id="ctx-fill"></div></div>
+        <div class="bar-label ctx-label" id="ctx-label">—</div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">7-DAY QUOTA</div>
+        <div class="bar"><div class="bar-fill q7d" id="q7d-fill"></div></div>
+        <div class="bar-label q7d-label" id="q7d-label">—</div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <span id="session">session: —</span>
+      <span id="last-refresh">never</span>
+    </footer>
+  </main>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

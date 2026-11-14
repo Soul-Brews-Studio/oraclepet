@@ -1,0 +1,162 @@
+# OraclePet (was Desk Pet) — macOS menu-bar app that drives the jc3248 desk pet from the herdr fleet.
+#   just            # list recipes
+#   just launch     # build, bundle, sign, (re)start
+#   just status     # what the running app is doing
+
+app_name   := "DeskPetMac"
+exec_name  := "DeskPet"
+bundle_id  := "co.laris.deskpet"
+app_bundle := "OraclePet.app"
+binary     := ".build/release/" + app_name
+plist      := app_bundle + "/Contents/Info.plist"
+pb         := "/usr/libexec/PlistBuddy"
+pack       := "../buddy/characters/siamese"
+icon_src   := "Resources/AppIcon.png"      # transparent sleeping Siamese (Codex image_gen)
+iconset    := ".build/AppIcon.iconset"
+
+# Sign with an Apple Development identity when this Mac has one: macOS keys the Bluetooth
+# grant to the signature, and an ad-hoc signature changes on every build, so each rebuild
+# was a "new app" stuck at the permission prompt (CoreBluetooth state stays unknown).
+# Falls back to ad-hoc ("-") elsewhere.  Override: SIGN_ID=- just package
+sign_id := env("SIGN_ID", `security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}'`)
+
+default:
+    @just --list
+
+build:
+    swift build -c release
+
+test:
+    swift test
+
+# Core Bluetooth needs a real bundle with NSBluetoothAlwaysUsageDescription: a bare binary,
+# or python/bleak run from an agent's terminal, is denied Bluetooth by TCC (SIGABRT, rc 134).
+# Same recipe as laris-co/homelab ψ/lab/inkbird-mac (Cat Lab Grilling).
+package: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf "{{app_bundle}}"
+    mkdir -p "{{app_bundle}}/Contents/MacOS" "{{app_bundle}}/Contents/Resources/Pet" "{{app_bundle}}/Contents/Resources/PetAlpha"
+    cp "{{binary}}" "{{app_bundle}}/Contents/MacOS/{{exec_name}}"
+    # The pet's own GIFs, so the window shows exactly what the device shows
+    cp {{pack}}/*.gif "{{app_bundle}}/Contents/Resources/Pet/"
+    # Transparent set for mascot mode (built by nexus-oracle desk-pet/build-siamese-pack.sh)
+    cp Resources/PetAlpha/*.gif "{{app_bundle}}/Contents/Resources/PetAlpha/"
+    # Animation packs for partial OTA (Pet Firmware page): every character with a manifest
+    mkdir -p "{{app_bundle}}/Contents/Resources/Packs"
+    for d in ../buddy/characters/*/; do
+        [ -f "$d/manifest.json" ] || continue
+        n=$(basename "$d"); mkdir -p "{{app_bundle}}/Contents/Resources/Packs/$n"
+        cp "$d"/manifest.json "$d"/*.gif "{{app_bundle}}/Contents/Resources/Packs/$n/" 2>/dev/null || true
+    done
+    echo "packs: $(ls "{{app_bundle}}/Contents/Resources/Packs" | tr '\n' ' ')"
+    # Pet apps (WebAssembly, lab/pet-sdk): whatever ../pet-sdk/build holds
+    mkdir -p "{{app_bundle}}/Contents/Resources/Apps"
+    cp ../pet-sdk/build/*.wasm "{{app_bundle}}/Contents/Resources/Apps/" 2>/dev/null || true
+    echo "apps: $(ls "{{app_bundle}}/Contents/Resources/Apps" | tr '\n' ' ')"
+    # Built-in firmware for the Pet Firmware page: the current pet build, when there is one
+    # one image per board (lab/jc3248-pet-idf/main/board.h); the page offers the one that matches
+    mkdir -p "{{app_bundle}}/Contents/Resources/Firmware"
+    for fw in ../jc3248-pet-idf/build/jc3248_pet_idf.bin ../jc3248-pet-idf/build-lcd28/oraclepet_lcd28.bin; do
+        if [ -f "$fw" ]; then
+            cp "$fw" "{{app_bundle}}/Contents/Resources/Firmware/"
+            echo "built-in firmware: $(basename "$fw") $(stat -f %z "$fw") bytes, $(stat -f %Sm "$fw")"
+        else
+            echo "no build at $fw (skipped)"
+        fi
+    done
+    # App icon from the sleeping Siamese, every size iconutil wants
+    rm -rf "{{iconset}}" && mkdir -p "{{iconset}}"
+    for s in 16 32 128 256 512; do
+        sips -z $s $s "{{icon_src}}" --out "{{iconset}}/icon_${s}x${s}.png" >/dev/null
+        d=$((s * 2)); sips -z $d $d "{{icon_src}}" --out "{{iconset}}/icon_${s}x${s}@2x.png" >/dev/null
+    done
+    iconutil -c icns "{{iconset}}" -o "{{app_bundle}}/Contents/Resources/AppIcon.icns"
+    p="{{plist}}"
+    {{pb}} -c "Add :CFBundleName string 'OraclePet'" "$p" >/dev/null
+    {{pb}} -c "Add :CFBundleDisplayName string 'OraclePet'" "$p"
+    {{pb}} -c "Add :CFBundleIdentifier string '{{bundle_id}}'" "$p"
+    {{pb}} -c "Add :CFBundleVersion string '1'" "$p"
+    {{pb}} -c "Add :CFBundleShortVersionString string '0.1.0'" "$p"
+    {{pb}} -c "Add :CFBundlePackageType string 'APPL'" "$p"
+    {{pb}} -c "Add :CFBundleExecutable string '{{exec_name}}'" "$p"
+    {{pb}} -c "Add :LSMinimumSystemVersion string '14.0'" "$p"
+    {{pb}} -c "Add :NSHighResolutionCapable bool true" "$p"
+    {{pb}} -c "Add :CFBundleIconFile string 'AppIcon'" "$p"
+    # deskpet://ota?file=… starts a firmware update (`just ota`)
+    {{pb}} -c "Add :CFBundleURLTypes array" "$p"
+    {{pb}} -c "Add :CFBundleURLTypes:0 dict" "$p"
+    {{pb}} -c "Add :CFBundleURLTypes:0:CFBundleURLName string '{{bundle_id}}.ota'" "$p"
+    {{pb}} -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$p"
+    {{pb}} -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string 'deskpet'" "$p"
+    {{pb}} -c "Add :NSBluetoothAlwaysUsageDescription string 'OraclePet sends your herdr fleet status to the jc3248 desk pet over Bluetooth.'" "$p"
+    {{pb}} -c "Add :NSSpeechRecognitionUsageDescription string 'OraclePet turns what the desk pet microphone heard into text.'" "$p"
+    sign="{{sign_id}}"; sign="${sign:--}"
+    codesign --force --sign "$sign" "{{app_bundle}}"
+    echo "{{app_bundle}} ready (signed: $sign)"
+
+# Wait for the old process to really exit (it first releases the pet's BLE link), else
+# `open` just re-activates the quitting instance and the new build never runs.
+# SIGTERM goes through applicationShouldTerminate, which releases the pet.
+kill:
+    #!/usr/bin/env bash
+    pkill -x {{exec_name}} 2>/dev/null || true
+    for i in $(seq 1 50); do pgrep -x {{exec_name}} >/dev/null || exit 0; sleep 0.1; done
+    pkill -9 -x {{exec_name}} 2>/dev/null || true
+
+launch: package kill
+    open "{{app_bundle}}"
+
+restart: launch
+
+install: package kill
+    rm -rf "/Applications/{{app_bundle}}"
+    cp -R "{{app_bundle}}" /Applications/
+    @echo "Installed to /Applications/{{app_bundle}}"
+
+uninstall: kill
+    rm -rf "/Applications/{{app_bundle}}"
+
+# What the running app is doing: link, pet, last heartbeat, sends (written every tick)
+status:
+    @cat /tmp/deskpet-status.json
+
+# Firmware update over BLE: the running OraclePet sends the image to the pet it is linked to.
+# Build first (lab/jc3248-pet-idf: idf.py build). Follow it with `just status` (the "ota" line).
+ota bin="../jc3248-pet-idf/build/jc3248_pet_idf.bin":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    f="$(cd "$(dirname "{{bin}}")" && pwd)/$(basename "{{bin}}")"
+    [ -f "$f" ] || { echo "no firmware at $f (build it first)"; exit 1; }
+    pgrep -x {{exec_name}} >/dev/null || { echo "OraclePet is not running (just launch)"; exit 1; }
+    open "deskpet://ota?file=$f"
+    echo "sending $(basename "$f") ($(stat -f %z "$f") bytes); watch: just status"
+
+# Partial OTA of a pet app: build it with lab/pet-sdk, then send + run it on the linked pet.
+#   just app ../pet-sdk/build/hello.wasm      just app-run fleet-mood      just app-run stop
+app wasm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    f="$(cd "$(dirname "{{wasm}}")" && pwd)/$(basename "{{wasm}}")"
+    [ -f "$f" ] || { echo "no app at $f"; exit 1; }
+    pgrep -x {{exec_name}} >/dev/null || { echo "OraclePet is not running (just launch)"; exit 1; }
+    open "deskpet://app?file=$f"
+    echo "sending $(basename "$f") ($(stat -f %z "$f") bytes); watch: just status"
+
+app-run name:
+    open "deskpet://app?run={{name}}"
+
+# The pet speaks (macOS speech -> a 16 kHz clip -> the pet's speaker). pet = end of its name, e.g. D350
+say text pet="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    q=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]))' "{{text}}")
+    open "deskpet://say?text=$q&pet={{pet}}"
+
+# Partial OTA of an animation pack built into the app (lab/buddy/characters/<name>)
+pack name:
+    open "deskpet://pack?name={{name}}"
+
+clean:
+    swift package clean
+    rm -rf "{{app_bundle}}"

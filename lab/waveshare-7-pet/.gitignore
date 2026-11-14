@@ -1,0 +1,4 @@
+.pio/
+.vscode/
+*.bin
+src/idf_component.yml

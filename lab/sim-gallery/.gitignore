@@ -1,0 +1,11 @@
+node_modules
+dist
+.vite
+*.local
+.DS_Store
+
+# Synced by `make embeds`, `make flash`, `make build-sims` — regenerable.
+public/embeds
+public/sims
+public/flash
+.tmp/

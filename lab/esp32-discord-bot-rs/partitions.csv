@@ -1,0 +1,10 @@
+# esp32-discord-bot-rs: the pet's own partition table (lab/jc3248-pet-idf/partitions.csv), so the
+# bot can live in ota_0 next to the pet firmware in ota_1, and both read the same NVS (the WiFi
+# the pet was given over Improv). Switch back to the pet: tools/boot-pet.sh.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xd000,   0x2000,
+phy_init, data, phy,     0xf000,   0x1000,
+ota_0,    app,  ota_0,   0x10000,  0x280000,
+storage,  data, littlefs,0x290000, 0x300000,
+ota_1,    app,  ota_1,   0x590000, 0x270000,

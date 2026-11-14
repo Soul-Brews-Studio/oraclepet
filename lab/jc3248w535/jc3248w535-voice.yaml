@@ -1,0 +1,74 @@
+# Voice variant = web build (poster + Wi-Fi + Improv + wifi-icon/clock overlay)
+#                 + I2S audio out + media_player + MQTT "speak" push trigger.
+#
+# Hardware: JC3248W535 has an onboard I2S Class-D amp (U4) -> JST 1.25 2-pin
+# speaker connector P6. Plug a small 4-8 ohm speaker into P6.
+#   BCLK = GPIO42 . LRCLK = GPIO2 . DIN = GPIO41 . (no MCLK)
+#
+# Push flow: bot makes tts.wav -> publishes the URL to ${speak_topic} ->
+# board pulls + plays it. Built by esp32-oracle (2026-06-26).
+#
+# Audio chain (per ESPHome speaker media_player schema): the i2s speaker runs
+# at a fixed 48 kHz; each pipeline feeds through a resampler -> mixer -> i2s,
+# so a TTS wav at any sample rate (16k/22k/44.1k) is converted on the fly.
+
+packages:
+  web: !include jc3248w535-web.yaml
+
+esphome:
+  name: oracle-face-voice
+  friendly_name: Neo Genesis (Voice)
+
+substitutions:
+  # !! SET THIS to the Neo Genesis broker. Default = fleet broker.
+  mqtt_broker: "mqtt.example.com"
+  speak_topic: "NeoGenesis/speak"
+
+# MQTT push: payload of ${speak_topic} = a URL to a wav/mp3 -> play it.
+mqtt:
+  broker: ${mqtt_broker}
+  on_message:
+    - topic: ${speak_topic}
+      then:
+        - media_player.play_media:
+            id: voice
+            media_url: !lambda 'return x;'
+
+# ── I2S bus to the onboard amp ─────────────────────────────────────
+i2s_audio:
+  - id: i2s_bus
+    i2s_lrclk_pin: GPIO2
+    i2s_bclk_pin: GPIO42
+
+# ── Speaker chain: i2s out <- mixer <- resampler(s) ────────────────
+speaker:
+  - platform: i2s_audio
+    id: i2s_spk
+    i2s_audio_id: i2s_bus
+    dac_type: external
+    i2s_dout_pin: GPIO41
+    channel: mono
+    sample_rate: 48000
+  - platform: mixer
+    id: spk_mixer
+    output_speaker: i2s_spk
+    source_speakers:
+      - id: ann_mixer_in
+      - id: media_mixer_in
+  - platform: resampler
+    id: ann_resampler
+    output_speaker: ann_mixer_in
+  - platform: resampler
+    id: media_resampler
+    output_speaker: media_mixer_in
+
+media_player:
+  - platform: speaker
+    name: "Neo Genesis Voice"
+    id: voice
+    announcement_pipeline:
+      speaker: ann_resampler
+      num_channels: 1
+    media_pipeline:
+      speaker: media_resampler
+      num_channels: 1

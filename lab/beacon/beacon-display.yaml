@@ -1,0 +1,421 @@
+# beacon-display — pure-BLE Claude Code dashboard for the JC3248W535EN.
+#
+# Sister to jc3248w535.yaml (brewing dashboard) — same hardware, different
+# content. Scans BLE adverts, filters by local-name prefix "OR", base64-
+# decodes the 18-byte binary payload, CRC-checks it, and renders the dash.
+# Broadcast by the Tauri app (lab/oracle-app-tauri) via objc2 CoreBluetooth.
+#
+# Wire format + the full payload byte map are documented at the
+# esp32_ble_tracker lambda below. Model family rides as a code nibble;
+# the version (4.8, 4.9, …) rides as a data byte so the device shows the
+# live version with no reflash.
+#
+# BLE budget: 31-byte adv packet − 3 (Flags AD) − 2 (AD header) = 26 bytes
+# for the name. "OR" + base64(18 bytes) = 2 + 24 = 26 exactly. macOS
+# silently drops names that overflow the packet (caught in real testing).
+
+esphome:
+  name: oracle-beacon
+  friendly_name: Oracle Beacon
+  comment: "320x480 QSPI · Claude Code BLE dashboard"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+  hardware_uart: USB_SERIAL_JTAG
+
+# ── BLE-only firmware. Binary protocol v1. ─────────────────────────
+# Wire format on the BLE LocalName (≤ 26 bytes):
+#   "OR" + base64(18 bytes payload) = 26 chars
+# Payload (18 bytes, LE):
+#   0    ver(4)|model(4) : 1=Op, 2=So, 3=Ha
+#   1-2  ctx_used_k u16
+#   3    q7d_pct u8
+#   4-5  reset_min u16
+#   6-7  sent_min u16  (sender unix-time/60 mod 65536)
+#   8-15 project[8] ASCII null-padded
+#   16   model_ver u8  (major<<4|minor, 0x48 = 4.8 — sent so the device
+#                        shows the live version without a firmware reflash)
+#   17   crc8 (CRC-8/Maxim over bytes 0..16)
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 320ms
+    window: 30ms
+    active: true
+  on_ble_advertise:
+    - then:
+        - lambda: |-
+            std::string name = x.get_name();
+            if (name.size() != 26) return;
+            if (name[0] != 'O' || name[1] != 'R') return;
+            ESP_LOGD("beacon-scan", "candidate '%s' (rssi=%d)", name.c_str(), x.get_rssi());
+
+            // ── base64 decode bytes [2..26] → 18 bytes ───────────────
+            auto b64_lookup = [](char c) -> int {
+              if (c >= 'A' && c <= 'Z') return c - 'A';
+              if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+              if (c >= '0' && c <= '9') return c - '0' + 52;
+              if (c == '+') return 62;
+              if (c == '/') return 63;
+              return -1;
+            };
+            uint8_t buf[18];
+            int out_i = 0;
+            for (int i = 2; i < 26; i += 4) {
+              int v0 = b64_lookup(name[i]);
+              int v1 = b64_lookup(name[i+1]);
+              int v2 = b64_lookup(name[i+2]);
+              int v3 = b64_lookup(name[i+3]);
+              if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) {
+                ESP_LOGW("beacon", "invalid base64 in payload");
+                return;
+              }
+              buf[out_i++] = (v0 << 2) | (v1 >> 4);
+              if (out_i < 18) buf[out_i++] = ((v1 & 0x0F) << 4) | (v2 >> 2);
+              if (out_i < 18) buf[out_i++] = ((v2 & 0x03) << 6) | v3;
+            }
+
+            // ── CRC-8/Maxim check over bytes 0..16 ────────────────────
+            uint8_t crc = 0;
+            for (int i = 0; i < 17; i++) {
+              uint8_t b = buf[i];
+              for (int j = 0; j < 8; j++) {
+                uint8_t mix = (crc ^ b) & 0x01;
+                crc >>= 1;
+                if (mix) crc ^= 0x8C;
+                b >>= 1;
+              }
+            }
+            if (crc != buf[17]) {
+              ESP_LOGW("beacon", "CRC mismatch: got=0x%02X want=0x%02X", buf[17], crc);
+              return;
+            }
+
+            uint8_t version    = (buf[0] >> 4) & 0x0F;
+            uint8_t model_code = buf[0] & 0x0F;
+            if (version != 1) {
+              ESP_LOGW("beacon", "bad version %d", version);
+              return;
+            }
+            uint16_t ctx_used  = (uint16_t)buf[1] | ((uint16_t)buf[2] << 8);
+            uint8_t  q7d_pct   = buf[3];
+            uint16_t reset_min = (uint16_t)buf[4] | ((uint16_t)buf[5] << 8);
+            uint16_t sent_min  = (uint16_t)buf[6] | ((uint16_t)buf[7] << 8);
+            uint8_t  model_ver = buf[16];  // major<<4 | minor (0x48 = 4.8), 0=unknown
+
+            char project[9] = {0};
+            memcpy(project, &buf[8], 8);
+            project[8] = 0;
+
+            uint32_t now = millis();
+            id(last_match_ms) = now;
+            id(last_model_ver) = model_ver;
+            id(last_sent_min) = sent_min;
+            ESP_LOGI("beacon", "MATCH model=%d v=%d.%d ctx=%dk q7d=%d%% reset=%dm sent_min=%u project='%s'",
+                     model_code, model_ver >> 4, model_ver & 0x0F, ctx_used, q7d_pct, reset_min, sent_min, project);
+
+            // Model family (code) + version (wire byte) → "OPUS 4.8".
+            // Version is data, not hardcoded — bumps to 4.9/5.0 with no reflash.
+            const char *family = "MODEL";
+            const char *model_ctx_str = "?";
+            int ctx_max = 200;
+            if      (model_code == 1) { family = "OPUS";   model_ctx_str = "1M context";   ctx_max = 1000; }
+            else if (model_code == 2) { family = "SONNET"; model_ctx_str = "1M context";   ctx_max = 1000; }
+            else if (model_code == 3) { family = "HAIKU";  model_ctx_str = "200K context"; ctx_max = 200; }
+
+            char model_str[24];
+            if (model_ver != 0) {
+              snprintf(model_str, sizeof(model_str), "%s %d.%d", family, model_ver >> 4, model_ver & 0x0F);
+            } else {
+              snprintf(model_str, sizeof(model_str), "%s", family);
+            }
+
+            int ctx_pct = (ctx_max > 0) ? ((int)ctx_used * 100 / ctx_max) : 0;
+            lv_label_set_text(id(model_label),     model_str);
+            lv_label_set_text(id(model_ctx_label), model_ctx_str);
+
+            // Project label (NEW header above the model badge)
+            char header_buf[32];
+            snprintf(header_buf, sizeof(header_buf), "ψ %s", project);
+            lv_label_set_text(id(header), header_buf);
+
+            // Context bar + label
+            lv_bar_set_value(id(ctx_bar), ctx_pct, LV_ANIM_ON);
+            uint32_t ctx_color = ctx_pct > 90 ? 0xFF4040 : (ctx_pct > 70 ? 0xFFC040 : 0x00FF7F);
+            lv_obj_set_style_bg_color(id(ctx_bar), lv_color_hex(ctx_color), LV_PART_INDICATOR);
+            char buf2[48];
+            snprintf(buf2, sizeof(buf2), "%d%% · %dk / %dk", ctx_pct, ctx_used, ctx_max);
+            lv_label_set_text(id(ctx_label), buf2);
+
+            // 7-day quota bar + label — reset_min → humanised
+            lv_bar_set_value(id(q7d_bar), q7d_pct, LV_ANIM_ON);
+            uint32_t q7d_color = q7d_pct > 90 ? 0xFF4040 : (q7d_pct > 70 ? 0xFFC040 : 0x00FF7F);
+            lv_obj_set_style_bg_color(id(q7d_bar), lv_color_hex(q7d_color), LV_PART_INDICATOR);
+            char reset_buf[16];
+            if (reset_min >= 1440) snprintf(reset_buf, sizeof(reset_buf), "%dd%dh", reset_min / 1440, (reset_min % 1440) / 60);
+            else if (reset_min >= 60) snprintf(reset_buf, sizeof(reset_buf), "%dh%dm", reset_min / 60, reset_min % 60);
+            else snprintf(reset_buf, sizeof(reset_buf), "%dm", reset_min);
+            snprintf(buf2, sizeof(buf2), "%d%% · resets %s", q7d_pct, reset_buf);
+            lv_label_set_text(id(q7d_label), buf2);
+
+# ── QSPI bus for the AXS15231 display ──────────────────────────────
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+output:
+  - platform: ledc
+    pin: 1
+    id: backlight_pwm
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+display:
+  - platform: mipi_spi
+    model: AXS15231
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin: 45
+    dimensions:
+      width: 320
+      height: 480
+    color_order: rgb
+    invert_colors: false
+    data_rate: 40MHz
+    update_interval: never
+    auto_clear_enabled: false
+
+# ── Fonts: dashboard needs more sizes. Glyph set includes middle-dot · ──
+font:
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_14
+    size: 14
+    glyphs: &noto_glyphs " ψabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?:-[]()/%°+@#&*'\"·"
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_18
+    size: 18
+    glyphs: *noto_glyphs
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_22
+    size: 22
+    glyphs: *noto_glyphs
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_32
+    size: 32
+    glyphs: *noto_glyphs
+
+# ── LVGL dashboard layout (320×480 portrait, black bg) ─────────────
+# y-coords are absolute from TOP_MID. ASCII map in README.
+lvgl:
+  displays:
+    - lcd
+  bg_color: 0x000000
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 0
+      radius: 0
+      border_width: 0
+      widgets:
+        # Header
+        - label:
+            id: header
+            align: TOP_MID
+            y: 14
+            text: "ψ esp32-oracle"
+            text_color: 0xFFD27F
+            text_font: noto_22
+
+        # Model badge (big, golden)
+        - label:
+            id: model_label
+            align: TOP_MID
+            y: 52
+            text: "—"
+            text_color: 0xFFD27F
+            text_font: noto_32
+
+        - label:
+            id: model_ctx_label
+            align: TOP_MID
+            y: 96
+            text: "waiting for broadcast"
+            text_color: 0x888888
+            text_font: noto_14
+
+        # Context section
+        - label:
+            id: ctx_title
+            align: TOP_LEFT
+            x: 20
+            y: 138
+            text: "CONTEXT"
+            text_color: 0xCCCCCC
+            text_font: noto_14
+
+        - bar:
+            id: ctx_bar
+            align: TOP_MID
+            y: 162
+            width: 280
+            height: 22
+            min_value: 0
+            max_value: 100
+            value: 0
+            bg_color: 0x202020
+            border_color: 0x444444
+            border_width: 1
+            radius: 4
+            indicator:
+              bg_color: 0x00FF7F
+              radius: 4
+
+        - label:
+            id: ctx_label
+            align: TOP_MID
+            y: 195
+            text: "—"
+            text_color: 0x4FB3FF
+            text_font: noto_18
+
+        # 7-day quota section
+        - label:
+            id: q7d_title
+            align: TOP_LEFT
+            x: 20
+            y: 240
+            text: "7-DAY QUOTA"
+            text_color: 0xCCCCCC
+            text_font: noto_14
+
+        - bar:
+            id: q7d_bar
+            align: TOP_MID
+            y: 264
+            width: 280
+            height: 22
+            min_value: 0
+            max_value: 100
+            value: 0
+            bg_color: 0x202020
+            border_color: 0x444444
+            border_width: 1
+            radius: 4
+            indicator:
+              bg_color: 0x00FF7F
+              radius: 4
+
+        - label:
+            id: q7d_label
+            align: TOP_MID
+            y: 297
+            text: "—"
+            text_color: 0xFFA040
+            text_font: noto_18
+
+        # Footer — uptime + elapsed-since-recv + heartbeat
+        - label:
+            id: uptime_label
+            align: BOTTOM_MID
+            y: -54
+            text: "up 0s"
+            text_color: 0x666666
+            text_font: noto_14
+
+        - label:
+            id: elapsed_label
+            align: BOTTOM_MID
+            y: -32
+            text: "waiting for broadcast"
+            text_color: 0x4FB3FF
+            text_font: noto_14
+
+        - label:
+            id: heartbeat
+            align: BOTTOM_MID
+            y: -12
+            text: "ψ [0]"
+            text_color: 0x00FF7F
+            text_font: noto_14
+
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: last_match_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: last_model_ver
+    type: uint8_t
+    restore_value: no
+    initial_value: '0'
+  - id: last_sent_min
+    type: uint16_t
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          id(heartbeat_n) += 1;
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[16];
+            snprintf(buf, sizeof(buf), "ψ [%d]", id(heartbeat_n));
+            return std::string(buf);
+
+  # ── Uptime + elapsed-since-last-match ticker (500ms) ──────────────
+  - interval: 500ms
+    then:
+      - lambda: |-
+          uint32_t now = millis();
+
+          uint32_t up_s = now / 1000;
+          char ubuf[32];
+          if (up_s < 60) {
+            snprintf(ubuf, sizeof(ubuf), "up %lus", up_s);
+          } else if (up_s < 3600) {
+            snprintf(ubuf, sizeof(ubuf), "up %lum %lus", up_s / 60, up_s % 60);
+          } else {
+            snprintf(ubuf, sizeof(ubuf), "up %luh %lum", up_s / 3600, (up_s % 3600) / 60);
+          }
+          lv_label_set_text(id(uptime_label), ubuf);
+
+          if (id(last_match_ms) == 0) {
+            lv_label_set_text(id(elapsed_label), "no beacon yet");
+            return;
+          }
+          uint32_t elapsed = now - id(last_match_ms);
+          char ebuf[32];
+          if (elapsed < 1000) {
+            snprintf(ebuf, sizeof(ebuf), "recv'd %lums ago", elapsed);
+          } else if (elapsed < 60000) {
+            snprintf(ebuf, sizeof(ebuf), "recv'd %.1fs ago", elapsed / 1000.0);
+          } else {
+            snprintf(ebuf, sizeof(ebuf), "recv'd %lumin ago", elapsed / 60000);
+          }
+          lv_label_set_text(id(elapsed_label), ebuf);

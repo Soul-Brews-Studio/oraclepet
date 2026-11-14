@@ -1,0 +1,70 @@
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Mirrored esphome fleet — read-only reference, source-of-truth in laris-co repos.
+# Excluded from commits because upstream working trees contain real secrets that
+# weren't gitignored at source (wifi/mqtt passwords, API keys, OTA passwords, hostnames).
+# Anchored to repo root: this guards the mirror only. Our own clean esphome/ folders
+# elsewhere (e.g. lab/esp32-wasm-submission/esphome/) are NOT the mirror and stay tracked.
+/esphome/
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+
+# General
+.DS_Store
+
+# Project-local scratch — use .tmp/ instead of /tmp (Nat's convention)
+.tmp/
+
+# Secrets (defense in depth)
+secrets.yaml
+secrets.yml
+*.env
+.env
+
+# ESPHome build caches
+.esphome/
+
+# /learn — symlink to ghq source (source lives in ghq, not the repo)
+ψ/learn/**/origin
+
+# Serena MCP local state (cache + project meta — re-derivable)
+.serena/
+
+# maw agent worktrees (separate git worktrees, never committed)
+agents/
+
+# rsync mirror of white.local's claude-desktop-buddy (Nat's 4-board WIP, has its own .git)
+lab/claude-desktop-buddy/
+
+# rsync mirror of white.local claude-buddy-7inch (own .git)
+lab/buddy-7inch/
+
+# ArtronShop ATD3.5-S3 reference library (rsync from white)
+lab/ref-artronshop-atd35/
+
+# pioarduino-generated dependency manifest cruft (re-derived each Arduino build)
+lab/jc3248-pet/src/idf_component.yml
+lab/jc3248-pet/src/idf_component.yml.orig
+*.tsbuildinfo
+.cache/
+__pycache__/
+*.factory.bin
+.tmp/
+
+# Local web flasher — esp-web-tools manifest + firmware bins for browser WebUSB
+# flashing of the Waveshare 7B (and friends). Build artifacts; never committed.
+webflasher/
+
+# ψ/inbox — federation messages may contain real credentials (wifi/OTA passwords)
+ψ/inbox/
+
+# web flasher build outputs (tools/site)
+/dist/
+/_site/
+lab/jc3248-pet-idf/data/

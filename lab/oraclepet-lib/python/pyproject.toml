@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oraclepet"
+version = "0.1.0"
+description = "Drive the OraclePet desk pet over Bluetooth LE: firmware, packs, apps, speech, mic (protocol v1)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["bleak>=0.22"]
+keywords = ["bluetooth", "ble", "esp32", "ota", "oraclepet"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Framework :: AsyncIO",
+]
+
+[project.scripts]
+oraclepet = "oraclepet.cli:main"
+
+[tool.setuptools]
+packages = ["oraclepet"]

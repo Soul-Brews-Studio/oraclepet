@@ -1,0 +1,7 @@
+# ESP-IDF build artifacts + fetched managed components (re-derivable)
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+.cache/

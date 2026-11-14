@@ -1,0 +1,6 @@
+{
+  "name": "pet-sdk-assemblyscript",
+  "private": true,
+  "description": "AssemblyScript compiler for desk-pet apps (lab/pet-sdk)",
+  "devDependencies": { "assemblyscript": "0.28.20" }
+}

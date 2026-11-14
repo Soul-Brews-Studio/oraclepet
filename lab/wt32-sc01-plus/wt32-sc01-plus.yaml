@@ -1,0 +1,146 @@
+esphome:
+  name: oracle-sc01
+  friendly_name: Oracle SC01
+  comment: "ψ esp32-oracle — WT32-SC01 Plus (ZX3D50CE08S, ST7796 8080, FT6336U, N16R2)"
+
+# ── Board: Wireless-Tag/Panlee WT32-SC01 Plus ──────────────────────
+#   Module WT32-S3-WROVER-N16R2 = ESP32-S3, 16MB flash + 2MB QUAD PSRAM.
+#   (NOT the JC3248W535 — that's N16R8 / 8MB octal / AXS15231 QSPI.)
+#   Native USB-Serial-JTAG → /dev/cu.usbmodem1201, MAC 68:b6:b3:36:b0:18.
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+# 2MB PSRAM on the WROVER module is QUAD (vs the JC3248W535's octal 8MB).
+psram:
+  mode: quad
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG
+
+# ── Display: ST7796 8-bit 8080 — driven as an OCTAL SPI bus ─────────
+#   ESPHome's i80 component was reverted/abandoned upstream (PRs #8227–8230,
+#   reverted by #8384). The capability shipped DIFFERENTLY: an 8-bit 8080
+#   panel is an 8-lane octal SPI bus (WR = clock), and mipi_spi carries a
+#   built-in `WT32-SC01-PLUS` model (esphome/components/mipi_spi/models/ili.py)
+#   that bakes in bus_mode=octal, dc_pin=0, reset_pin=4, invert_colors=true,
+#   mirror_x. Verified present in our 2026.5.1. Pins by esp32-exp.
+spi:
+  - id: octal_spi
+    type: octal
+    clk_pin: 47                 # WR strobe acts as the octal clock
+    data_pins: [9, 46, 3, 8, 18, 17, 16, 15]
+
+display:
+  - platform: mipi_spi
+    model: WT32-SC01-PLUS       # bakes dc=0, reset=4, invert, mirror_x, dims
+    id: lcd
+    spi_id: octal_spi
+    auto_clear_enabled: false
+    update_interval: never
+
+# ── Backlight: GPIO45, LEDC PWM ────────────────────────────────────
+output:
+  - platform: ledc
+    pin: 45
+    id: backlight_pwm
+    frequency: 5000Hz
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# ── Touch: FT6336U (ft63x6 family) over I2C ────────────────────────
+i2c:
+  sda: 6
+  scl: 5
+  frequency: 400kHz
+  scan: true
+touchscreen:
+  - platform: ft63x6
+    interrupt_pin: 7
+    transform:                  # VERIFY against the banner on first flash
+      swap_xy: true
+      mirror_x: true
+
+# ── Fonts (NotoSans carries ψ) — reused from the jc3248w535 lab ─────
+font:
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_14
+    size: 14
+    glyphs: &noto_glyphs " ψabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?:-[]"
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_22
+    size: 22
+    glyphs: *noto_glyphs
+  - file: "../jc3248w535/sim/fonts/NotoSans-Regular.ttf"
+    id: noto_28
+    size: 28
+    glyphs: *noto_glyphs
+
+# ── LVGL bring-up page: banner + heartbeat ─────────────────────────
+lvgl:
+  displays:
+    - lcd
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x000000
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  align: TOP_MID
+                  y: 24
+                  text: "ψ esp32-oracle"
+                  text_color: 0xFFD27F
+                  text_font: noto_28
+              - label:
+                  align: TOP_MID
+                  y: 64
+                  text: "WT32-SC01 Plus"
+                  text_color: 0x888888
+                  text_font: noto_14
+              - label:
+                  id: heartbeat
+                  align: CENTER
+                  text: "[0] tending the flame..."
+                  text_color: 0x00FF7F
+                  text_font: noto_22
+
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: 'id(heartbeat_n) += 1;'
+      - logger.log:
+          format: "ψ esp32-oracle — WT32-SC01 Plus [%d] tending the flame..."
+          args: ['id(heartbeat_n)']
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[48];
+            snprintf(buf, sizeof(buf), "[%d] tending the flame...", id(heartbeat_n));
+            return std::string(buf);

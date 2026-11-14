@@ -1,0 +1,494 @@
+<!doctype html>
+<!--
+  jc3248-pet simulator — previews the bufo desk-pet in a browser without hardware.
+  It loads the SAME character pack (data/characters/<pack>/manifest.json + GIFs)
+  and runs the SAME state machine as the firmware (pet.cpp):
+    waiting>0 -> attention, running>0 -> busy, total==0 -> sleep, else idle;
+    tap -> heart (4s, overrides); no/stale link -> idle.
+  The panel is 320x480 with an 80px HUD strip; GIFs are 3x nearest-neighbor upscaled.
+
+  The HUD matches the firmware drawHUD(): when the heartbeat carries usage data it
+  shows two usage windows instead of the activity line:
+      Line 1: pet name        e.g. "bufo"
+      Line 2: "5h 8% 3h55m"   (5h window: percent + reset countdown)
+      Line 3: "wk 41% 4d23h"  (weekly window: percent + reset countdown)
+  With no usage data, Line 2 is the activity line
+  ("running: Bash" / "run R wait W TOKt" / "idle  BLE adv  M:SS").
+
+  TECH: single self-contained HTML file. ZERO build step. Everything via CDN —
+    React 18 + ReactDOM 18 (UMD), Babel standalone (JSX), Tailwind Play CDN.
+  No npm, no bundler. Just serve it over http (it fetch()es ../data).
+
+  RUN (must be served so fetch()/img can read ../data):
+      cd lab/jc3248-pet
+      python3 -m http.server 8080
+      open http://localhost:8080/sim/pet-sim.html
+  (Needs the character pack on disk: data/characters/bufo/ — copy from the buddy
+   and it's there already if you've flashed the device.)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jc3248-pet simulator</title>
+
+<!-- Tailwind Play CDN (no build) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- React 18 + ReactDOM 18 (UMD globals: React, ReactDOM) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- Babel standalone — transpiles the JSX <script type="text/babel"> below -->
+<!-- Pinned to 7: Babel 8 (unpkg default since 2026) compiles JSX to an `import` from
+     react/jsx-runtime, which an inline script cannot run, and the page stays blank. -->
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+<style>
+  /* Pixel-art pets must NOT be smoothed when upscaled (mirror firmware nearest-neighbor). */
+  .pixelated { image-rendering: pixelated; image-rendering: crisp-edges; }
+  body { background:#0b0d12; }
+</style>
+</head>
+
+<body class="text-slate-300 antialiased">
+<div id="root" class="min-h-screen"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---- constants (mirror pet.cpp) ------------------------------------------
+// character dir under ../data/characters/; ?pack=<name> previews another pack
+const PACK = new URLSearchParams(location.search).get('pack') || 'bufo';
+const BASE = `../data/characters/${PACK}`;
+const W = 320, H = 480, HUD_H = 80, SCALE = 3;
+const REACT_MS = 4000;                      // tap → heart duration
+const STALE_MS = 30000;                     // BLE link goes stale after this
+const IDLE_DWELL_MS = 3000;                 // ~time per idle gif before rotating (ANIM_PAUSE_MS)
+
+// Mirror of pet.cpp fmt_reset(): seconds-until-reset → "4d23h" / "3h55m" / "12m" / "--".
+function fmtReset(sec) {
+  if (sec == null || sec < 0)  return '--';
+  if (sec >= 86400) return `${Math.floor(sec / 86400)}d${Math.floor((sec % 86400) / 3600)}h`;
+  if (sec >= 3600)  return `${Math.floor(sec / 3600)}h${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}m`;
+  return `${Math.floor(sec / 60)}m`;
+}
+
+// Mirror of pet.cpp fmt_window(): "5h 8% 3h55m", or whichever parts exist.
+// pct/reset of null|<0 means "absent".
+function fmtWindow(label, pct, reset) {
+  const havePct = pct != null && pct >= 0;
+  const haveReset = reset != null && reset >= 0;
+  if (havePct && haveReset) return `${label} ${pct}% ${fmtReset(reset)}`;
+  if (havePct)              return `${label} ${pct}%`;
+  return `${label} ${fmtReset(reset)}`;     // reset-only (or "--" if neither — matches firmware fallthrough)
+}
+
+// Mirror of pet.cpp computeDesired().
+function computeDesired(link, snap, now) {
+  if (!link.connected) return 'idle';
+  if (now - link.lastSnap > STALE_MS) return 'idle';
+  if (snap.waiting > 0) return 'attention';
+  if (snap.running > 0) return 'busy';
+  if (snap.total === 0) return 'sleep';
+  return 'idle';
+}
+
+// usage present when ANY of the four fields was provided (matches firmware haveUsage).
+function haveUsage(s) {
+  return (s.pct5h != null && s.pct5h >= 0) || (s.pct7d != null && s.pct7d >= 0) ||
+         (s.reset5h != null && s.reset5h >= 0) || (s.reset7d != null && s.reset7d >= 0);
+}
+
+// Preset snapshots — include usage so the HUD shows the two windows.
+// Same 8% / 3h55m and 41% / 4d23h as the dashboard + poke_pet.py.
+const USAGE = { tokens: 1842, pct5h: 8, reset5h: 14100, pct7d: 41, reset7d: 428400 };
+const PRESETS = {
+  idle:      { total: 1, running: 0, waiting: 0, msg: 'idle',                 ...USAGE },
+  busy:      { total: 1, running: 1, waiting: 0, msg: 'running: Bash',        ...USAGE },
+  attention: { total: 1, running: 0, waiting: 1, msg: 'approve: rm -rf /tmp/x', ...USAGE },
+  sleep:     { total: 0, running: 0, waiting: 0, msg: 'all done',             ...USAGE },
+};
+
+const EMPTY_SNAP = { total: 0, running: 0, waiting: 0, msg: '', tokens: 0,
+                     pct5h: -1, reset5h: -1, pct7d: -1, reset7d: -1 };
+
+// normalise an incoming heartbeat object → full snapshot (missing usage → -1 = absent).
+function toSnapshot(o) {
+  const num = (v, d) => (v === undefined || v === null) ? d : (v | 0);
+  return {
+    total:   o.total   | 0,
+    running: o.running | 0,
+    waiting: o.waiting | 0,
+    msg:     o.msg || '',
+    tokens:  o.tokens | 0,
+    pct5h:   num(o.pct5h,   -1),
+    reset5h: num(o.reset5h, -1),
+    pct7d:   num(o.pct7d,   -1),
+    reset7d: num(o.reset7d, -1),
+  };
+}
+
+// ---- HUD ------------------------------------------------------------------
+function Hud({ pal, snap, link, reacting, now }) {
+  let lines;            // the lines below the name
+  let dim = [];         // which lines render in textDim
+
+  const usage = haveUsage(snap);
+  if (link.connected && now - link.lastSnap <= STALE_MS && usage) {
+    // Lines 2-3: the two usage windows — "5h 8% 3h55m" / "wk 41% 4d23h".
+    lines = [ fmtWindow('5h', snap.pct5h, snap.reset5h),
+              fmtWindow('wk', snap.pct7d, snap.reset7d) ];
+    dim = [false, true];                               // wk line uses textDim
+  } else {
+    // Line 2: activity when linked, else local state + uptime.
+    let status;
+    if (link.connected) {
+      if (now - link.lastSnap > STALE_MS) status = 'BLE link stale';
+      else if (snap.msg)                  status = snap.msg;
+      else                                status = `run ${snap.running}  wait ${snap.waiting}  ${snap.tokens}t`;
+    } else {
+      const up = Math.floor(now / 1000);
+      status = `${reacting ? 'heart' : 'idle'}  BLE adv  ${Math.floor(up / 60)}:${String(up % 60).padStart(2, '0')}`;
+    }
+    lines = [status];
+    dim = [true];
+  }
+
+  // dot: orange while reacting (stands in for pairing), green linked, dim advertising.
+  const dotColor = reacting ? '#ffae33' : link.connected ? '#33d17a' : '#5a6072';
+
+  return (
+    <div className="absolute inset-x-0 bottom-0 px-3 py-2.5 font-mono"
+         style={{ height: HUD_H, borderTop: `1px solid ${pal.textDim}` }}>
+      <span className="absolute rounded-full"
+            style={{ right: 12, top: 14, width: 12, height: 12, background: dotColor,
+                     boxShadow: `0 0 6px ${dotColor}` }} />
+      <div className="font-bold leading-none" style={{ fontSize: 22, color: pal.text }}>
+        {snap.name || PACK}
+      </div>
+      <div className="mt-2.5 space-y-1">
+        {lines.map((t, i) => (
+          <div key={i} className="leading-tight" style={{ fontSize: 14, color: dim[i] ? pal.textDim : pal.text }}>
+            {t}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- Device panel (pet + HUD) ---------------------------------------------
+function Panel({ pal, gifSrc, snap, link, reacting, now, onTap }) {
+  const imgRef = useRef(null);
+  const [pos, setPos] = useState({ w: 0, h: 0, left: 0, top: 0 });
+
+  // 3x nearest-neighbor, centered in the (H - HUD_H) area above the HUD (mirror gifPlace).
+  const place = useCallback(() => {
+    const img = imgRef.current;
+    if (!img || !img.naturalWidth) return;
+    const ow = img.naturalWidth * SCALE, oh = img.naturalHeight * SCALE;
+    setPos({
+      w: ow, h: oh,
+      left: Math.max(0, (W - ow) / 2),
+      top:  Math.max(0, ((H - HUD_H) - oh) / 2),
+    });
+  }, []);
+
+  return (
+    <div
+      onClick={onTap}
+      title="click = tap the pet (heart)"
+      className="relative overflow-hidden rounded-lg cursor-pointer select-none"
+      style={{ width: W, height: H, background: pal.bg }}
+    >
+      <div className="absolute inset-x-0 text-center pointer-events-none"
+           style={{ top: 6, fontSize: 11, color: '#ffffff55' }}>
+        click the pet to tap it 💚
+      </div>
+
+      {gifSrc && (
+        <img
+          ref={imgRef}
+          src={gifSrc}
+          onLoad={place}
+          alt=""
+          className="absolute pixelated"
+          style={{ width: pos.w, height: pos.h, left: pos.left, top: pos.top }}
+        />
+      )}
+
+      <Hud pal={pal} snap={snap} link={link} reacting={reacting} now={now} />
+    </div>
+  );
+}
+
+// ---- main component -------------------------------------------------------
+function PetSim() {
+  // manifest-derived
+  const [pal, setPal] = useState({ bg: '#000000', text: '#FFFFFF', textDim: '#808080' });
+  const statesRef = useRef({});               // { idle:[], busy, attention, sleep, heart }
+  const [petName, setPetName] = useState(PACK);
+  const [loadErr, setLoadErr] = useState(false);
+
+  // live state (refs drive the rAF loop; mirrored into state for render)
+  const linkRef = useRef({ connected: false, lastSnap: 0 });
+  const snapRef = useRef({ ...EMPTY_SNAP });
+  const reactingRef = useRef(false);
+  const reactUntilRef = useRef(0);
+  const curRef = useRef(null);
+  const idleRotRef = useRef(0);
+  const idleNextAtRef = useRef(0);
+
+  // render mirrors
+  const [link, setLink] = useState(linkRef.current);
+  const [snap, setSnap] = useState(snapRef.current);
+  const [reacting, setReacting] = useState(false);
+  const [cur, setCur] = useState(null);
+  const [gifSrc, setGifSrc] = useState('');
+  const [now, setNow] = useState(0);
+  const [connLabel, setConnLabel] = useState('advertising (not linked)');
+  const [log, setLog] = useState([]);
+  const [hbText, setHbText] = useState(
+    JSON.stringify({ total: 1, running: 1, waiting: 0, msg: 'running: Bash', tokens: 1842,
+                     pct5h: 8, reset5h: 14100, pct7d: 41, reset7d: 428400 }, null, 0)
+  );
+
+  const addLog = useCallback((m) => {
+    setLog((prev) => [`${m}`, ...prev].slice(0, 40));
+  }, []);
+
+  function reactionGif() {
+    const st = statesRef.current;
+    return st.heart || st.celebrate || null;
+  }
+
+  function gifForState(s) {
+    const st = statesRef.current;
+    if (s === 'idle')  return (st.idle && st.idle.length) ? st.idle[idleRotRef.current % st.idle.length] : null;
+    if (s === 'heart') return reactionGif();
+    return st[s] || null;                     // busy / attention / sleep (single gif)
+  }
+
+  const showGif = useCallback((file) => {
+    if (!file) return;
+    // cache-bust so re-selecting the same gif restarts its animation
+    setGifSrc(`${BASE}/${file}?t=${Math.floor(performance.now())}`);
+  }, []);
+
+  const enterState = useCallback((s) => {
+    curRef.current = s;
+    setCur(s);
+    if (s === 'idle') idleNextAtRef.current = performance.now() + IDLE_DWELL_MS;
+    showGif(gifForState(s));
+    addLog(`state -> ${s}` + (s === 'idle' ? ` (idle_${idleRotRef.current})` : ''));
+  }, [showGif, addLog]);
+
+  // --- the rAF loop (mirror pet.cpp tick) ---
+  useEffect(() => {
+    let raf;
+    const loop = () => {
+      const t = performance.now();
+      setNow(t);
+
+      if (reactingRef.current && t >= reactUntilRef.current) {
+        reactingRef.current = false;
+        setReacting(false);
+      }
+      if (reactingRef.current) {
+        if (curRef.current !== 'heart') enterState('heart');
+      } else {
+        const want = computeDesired(linkRef.current, snapRef.current, t);
+        const st = statesRef.current;
+        if (want !== curRef.current) {
+          enterState(want);
+        } else if (curRef.current === 'idle' && st.idle && st.idle.length > 1 && t >= idleNextAtRef.current) {
+          idleRotRef.current = (idleRotRef.current + 1) % st.idle.length;
+          enterState('idle');                 // rotate to the next idle gif
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [enterState]);
+
+  // --- boot: load the manifest (same one the firmware reads) ---
+  useEffect(() => {
+    fetch(`${BASE}/manifest.json`)
+      .then((r) => r.json())
+      .then((m) => {
+        if (m.colors) setPal((p) => ({ ...p, ...m.colors }));
+        const st = m.states || {};
+        if (typeof st.idle === 'string') st.idle = [st.idle];
+        statesRef.current = st;
+        setPetName(m.name || PACK);
+        addLog(`loaded '${m.name || PACK}'  states: ${Object.keys(st).join(', ')}`);
+        enterState('idle');
+      })
+      .catch((e) => {
+        setLoadErr(true);
+        addLog(`manifest fetch failed: ${e.message}  — run: python3 -m http.server 8080`);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- actions ---
+  function applySnapshot(o) {
+    const s = toSnapshot(o);
+    s.name = petName;
+    snapRef.current = s;
+    setSnap(s);
+    const l = { connected: true, lastSnap: performance.now() };
+    linkRef.current = l;
+    setLink(l);
+    setConnLabel('linked');
+    addLog(`heartbeat total=${s.total} run=${s.running} wait=${s.waiting} tok=${s.tokens}`);
+  }
+
+  function toggleConn() {
+    if (linkRef.current.connected) {
+      const l = { connected: false, lastSnap: 0 };
+      linkRef.current = l; setLink(l);
+      setConnLabel('advertising (not linked)');
+      addLog('disconnected');
+    } else {
+      const l = { connected: true, lastSnap: performance.now() };
+      linkRef.current = l; setLink(l);
+      setConnLabel('linked');
+    }
+  }
+
+  function tap() {
+    if (!reactionGif()) { addLog('no reaction gif in pack'); return; }
+    reactUntilRef.current = performance.now() + REACT_MS;
+    reactingRef.current = true;
+    setReacting(true);
+    enterState('heart');
+    addLog('tap -> heart');
+  }
+
+  function sendHeartbeat() {
+    try { applySnapshot(JSON.parse(hbText)); }
+    catch (e) { addLog('bad JSON: ' + e.message); }
+  }
+
+  // keep snap.name fresh for the HUD even before first heartbeat
+  const hudSnap = { ...snap, name: petName };
+
+  // --- UI ---
+  // A plain function, not a component: a component defined inside App is a new type on every
+  // render, and the rAF loop re-renders App every frame, so React remounted the buttons ~60x/s
+  // and a click's mousedown and mouseup landed on different nodes (busy/attention "unclickable").
+  const presetBtn = (id, label) => (
+    <button
+      key={id}
+      onClick={() => applySnapshot(PRESETS[id])}
+      className={
+        'rounded-lg border px-3 py-1.5 text-sm transition ' +
+        'bg-slate-700/60 border-white/10 hover:bg-slate-600/70 ' +
+        (!reacting && cur === id ? 'outline outline-2 outline-sky-400' : '')
+      }
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="mx-auto flex max-w-5xl flex-wrap gap-8 p-7">
+      {/* device column */}
+      <div>
+        <h1 className="mb-3 text-sm font-semibold tracking-wide text-slate-400">
+          jc3248-pet · 320×480 AXS15231
+        </h1>
+        <div className="inline-block rounded-3xl bg-slate-800 p-4 shadow-2xl ring-1 ring-white/10">
+          <Panel pal={pal} gifSrc={gifSrc} snap={hudSnap} link={link}
+                 reacting={reacting} now={now} onTap={tap} />
+        </div>
+        {loadErr && (
+          <p className="mt-3 max-w-[320px] text-xs text-amber-400">
+            manifest load failed — serve over http (see the file header):
+            <code className="ml-1 rounded bg-black/40 px-1 text-emerald-300">python3 -m http.server 8080</code>
+          </p>
+        )}
+      </div>
+
+      {/* controls column */}
+      <div className="min-w-[300px] max-w-[380px] flex-1">
+        <h1 className="mb-3 text-sm font-semibold tracking-wide text-slate-400">
+          Simulated Claude activity
+        </h1>
+
+        <Card title="Link">
+          <button
+            onClick={toggleConn}
+            className={
+              'rounded-lg border px-3 py-1.5 text-sm transition ' +
+              (link.connected
+                ? 'bg-emerald-700 border-emerald-500 hover:bg-emerald-600'
+                : 'bg-slate-700/60 border-white/10 hover:bg-slate-600/70')
+            }
+          >
+            {link.connected ? 'Disconnect' : 'Connect'}
+          </button>
+          <span className="ml-3 text-sm text-slate-400">{connLabel}</span>
+        </Card>
+
+        <Card title="State (presets)">
+          <div className="flex flex-wrap gap-2">
+            {presetBtn('idle', 'idle')}
+            {presetBtn('busy', 'busy ⚙️')}
+            {presetBtn('attention', 'attention 🟠')}
+            {presetBtn('sleep', 'sleep 😴')}
+            <button
+              onClick={tap}
+              className="rounded-lg border border-white/10 bg-slate-700/60 px-3 py-1.5 text-sm hover:bg-slate-600/70"
+            >
+              tap → heart 💚
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            presets imply a link + set the heartbeat (with usage). The pet derives the state exactly
+            like the firmware: waiting&gt;0→attention, running&gt;0→busy, total==0→sleep, else idle.
+          </p>
+        </Card>
+
+        <Card title="Raw heartbeat (the real wire format)">
+          <textarea
+            value={hbText}
+            onChange={(e) => setHbText(e.target.value)}
+            spellCheck={false}
+            className="h-24 w-full resize-y rounded-lg border border-white/10 bg-[#0e1014] p-2 font-mono text-xs text-slate-300"
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              onClick={sendHeartbeat}
+              className="rounded-lg border border-white/10 bg-slate-700/60 px-3 py-1.5 text-sm hover:bg-slate-600/70"
+            >
+              Send heartbeat →
+            </button>
+            <span className="text-xs text-slate-500">same JSON you'd write to NUS RX</span>
+          </div>
+        </Card>
+
+        <Card title="Log">
+          <div className="max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-500">
+            {log.join('\n')}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Card({ title, children }) {
+  return (
+    <div className="mb-3.5 rounded-xl border border-white/10 bg-slate-800/40 p-3.5">
+      <h2 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<PetSim />);
+</script>
+</body>
+</html>

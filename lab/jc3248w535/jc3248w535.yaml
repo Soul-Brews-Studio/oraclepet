@@ -1,0 +1,508 @@
+esphome:
+  name: oracle-face
+  friendly_name: Oracle Face
+  comment: "320x480 QSPI"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG   # keep /dev/cu.usbmodem* alive at runtime
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Oracle-Face Fallback"
+    password: !secret ap_fallback_password
+
+captive_portal:
+
+# ── MQTT: subscribe to xiaoer/active/* brewing topics ──────────────
+mqtt:
+  broker: !secret mqtt_broker
+  port: 1883
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: false
+  topic_prefix: esp32-oracle/oracle-face
+  on_message:
+    - topic: xiaoer/active/name
+      then:
+        - lvgl.label.update: { id: batch_name, text: !lambda 'return x;' }
+    - topic: xiaoer/active/style
+      then:
+        - lvgl.label.update: { id: batch_style, text: !lambda 'return x;' }
+    - topic: xiaoer/active/status
+      then:
+        - lvgl.label.update: { id: batch_status, text: !lambda 'return x;' }
+    - topic: xiaoer/active/day
+      then:
+        - lvgl.label.update:
+            id: batch_day
+            text: !lambda 'return x.empty() ? std::string("0") : x;'
+        - lvgl.bar.update:
+            id: day_progress
+            value: !lambda 'return x.empty() ? 0 : atoi(x.c_str());'
+    - topic: xiaoer/active/total_days
+      then:
+        - lvgl.label.update:
+            id: batch_total
+            text: !lambda 'return x.empty() ? std::string("/ ...") : (std::string("/ ") + x);'
+    - topic: xiaoer/active/batch_size_l
+      then:
+        - lvgl.label.update:
+            id: batch_size
+            text: !lambda 'return x + std::string(" L");'
+    - topic: xiaoer/active/grain_kg
+      then:
+        - lvgl.label.update:
+            id: batch_grain
+            text: !lambda 'return x + std::string(" kg");'
+    # OG/FG intentionally NOT subscribed — they're masked on screen until
+    # actually measured. ABV/IBU are recipe targets and stay visible.
+    - topic: xiaoer/active/abv_target
+      then:
+        - lvgl.label.update:
+            id: batch_abv
+            text: !lambda 'return x + std::string("%");'
+    - topic: xiaoer/active/ibu
+      then:
+        - lvgl.label.update: { id: batch_ibu, text: !lambda 'return x;' }
+
+# ── QSPI bus for the AXS15231 display ──────────────────────────────
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+# ── Backlight on GPIO 1, LEDC PWM ──────────────────────────────────
+output:
+  - platform: ledc
+    pin: 1
+    id: backlight_pwm
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# ── Display: AXS15231 over QSPI, 320x480 ───────────────────────────
+display:
+  - platform: mipi_spi
+    model: AXS15231
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin: 45
+    dimensions:
+      width: 320
+      height: 480
+    color_order: rgb
+    invert_colors: false
+    data_rate: 40MHz
+    update_interval: never
+    auto_clear_enabled: false
+
+# ── Fonts: Noto Sans (carries ψ, U+03C8) ───────────────────────────
+font:
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_14
+    size: 14
+    glyphs: &noto_glyphs " ψabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?:-[]()/%°+"
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_22
+    size: 22
+    glyphs: *noto_glyphs
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_28
+    size: 28
+    glyphs: *noto_glyphs
+  # Material Icons Regular subset — codepoints kept as YAML \u escapes so
+  # they render readably in GitHub/diff tools (the actual chars are in the
+  # Unicode Private Use Area so most fonts show ▢; ESPHome treats them as
+  # UTF-8 and looks them up in the TTF either way).
+  #   U+E322 = memory (chip)
+  #   U+E798 = opacity (water drop)
+  #   U+EF55 = local_fire_department (flame)
+  #   U+E65F = hourglass_top / auto_awesome (sparkles)
+  - file: "sim/fonts/MaterialIcons-Regular.ttf"
+    id: icons_18
+    size: 18
+    glyphs: ["\uE322", "\uE798", "\uEF55", "\uE65F"]
+  - file: "sim/fonts/MaterialIcons-Regular.ttf"
+    id: icons_22
+    size: 22
+    glyphs: ["\uE322", "\uE798", "\uEF55", "\uE65F"]
+
+# ── LVGL: brewing dashboard fed by MQTT ────────────────────────────
+lvgl:
+  displays:
+    - lcd
+  bg_color: 0x000000        # display background — covers anything outside pages
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 0
+      radius: 0
+      border_width: 0
+      widgets:
+        # ╔═══ Card 1: Header — Xiaoer Oracle + BREW DAY ════════════╗
+        - obj:
+            x: 8
+            y: 8
+            width: 304
+            height: 70
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 14
+            widgets:
+              - label:
+                  id: brand
+                  align: TOP_LEFT
+                  text: "Xiaoer Oracle"
+                  text_color: 0xFFFFFF
+                  text_font: noto_22
+              - label:
+                  id: body_tag
+                  align: TOP_LEFT
+                  y: 28
+                  text: "first body with a screen"
+                  text_color: 0x888888
+                  text_font: noto_14
+              - obj:
+                  align: TOP_RIGHT
+                  width: 96
+                  height: 26
+                  bg_color: 0x0A1419
+                  bg_opa: COVER
+                  border_width: 1
+                  border_color: 0x00FF7F
+                  radius: 13
+                  pad_all: 0
+                  widgets:
+                    - label:
+                        id: batch_status
+                        align: CENTER
+                        text: "FERMENTING"
+                        text_color: 0x00FF7F
+                        text_font: noto_14
+
+        # ╔═══ Card 2: DAY counter + progress bar ═══════════════════╗
+        - obj:
+            x: 8
+            y: 86
+            width: 304
+            height: 68
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 14
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  y: 12
+                  text: "DAY"
+                  text_color: 0x888888
+                  text_font: noto_14
+              - label:
+                  id: batch_day
+                  align: TOP_LEFT
+                  x: 48
+                  y: 0
+                  text: "?"
+                  text_color: 0x00FF7F
+                  text_font: noto_28
+              - label:
+                  id: batch_total
+                  align: TOP_LEFT
+                  x: 92
+                  y: 6
+                  text: "/ ?"
+                  text_color: 0x888888
+                  text_font: noto_22
+              # bar starts at 0 — MQTT day value drives it on each update.
+              - bar:
+                  id: day_progress
+                  align: BOTTOM_MID
+                  y: 0
+                  width: 264
+                  height: 6
+                  min_value: 0
+                  max_value: 24
+                  value: 0
+                  bg_color: 0x1F3540
+                  bg_opa: COVER
+                  radius: 3
+                  border_width: 0
+                  indicator:
+                    bg_color: 0x00FF7F
+                    bg_opa: COVER
+                    radius: 3
+
+        # ╔═══ Card 3: BREWING batch info ═══════════════════════════╗
+        - obj:
+            x: 8
+            y: 162
+            width: 304
+            height: 90
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 14
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "BREWING"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_name
+                  align: TOP_LEFT
+                  y: 20
+                  text: "Neo Genesis"
+                  text_color: 0xFFFFFF
+                  text_font: noto_28
+              - label:
+                  id: batch_style
+                  align: TOP_LEFT
+                  y: 52
+                  text: "American IPA"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  align: TOP_RIGHT
+                  y: 4
+                  text: ""   # memory chip (Material Icons e322)
+                  text_color: 0x4FB3FF
+                  text_font: icons_22
+              - label:
+                  align: TOP_RIGHT
+                  y: 36
+                  text: "ESP32"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+
+        # ╔═══ Cards 4 + 5: VOLUME + GRAIN (side-by-side) ═══════════╗
+        - obj:
+            x: 8
+            y: 260
+            width: 148
+            height: 78
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 12
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "VOLUME"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_size
+                  align: BOTTOM_LEFT
+                  text: "530 L"
+                  text_color: 0xFFFFFF
+                  text_font: noto_22
+        - obj:
+            x: 164
+            y: 260
+            width: 148
+            height: 78
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 12
+            widgets:
+              - label:
+                  align: TOP_LEFT
+                  text: "GRAIN"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_grain
+                  align: BOTTOM_LEFT
+                  text: "139 kg"
+                  text_color: 0xFFFFFF
+                  text_font: noto_22
+
+        # ╔═══ Cards 6-9: OG / FG / ABV / IBU (4-up grid) ═══════════╗
+        - obj:
+            x: 8
+            y: 346
+            width: 73
+            height: 60
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 6
+            widgets:
+              - label:
+                  align: TOP_MID
+                  text: "OG"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_og
+                  align: BOTTOM_MID
+                  y: -4
+                  text: "?.???"
+                  text_color: 0x666666
+                  text_font: noto_14
+        - obj:
+            x: 89
+            y: 346
+            width: 73
+            height: 60
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 6
+            widgets:
+              - label:
+                  align: TOP_MID
+                  text: "FG"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_fg
+                  align: BOTTOM_MID
+                  y: -4
+                  text: "?.???"
+                  text_color: 0x666666
+                  text_font: noto_14
+        - obj:
+            x: 170
+            y: 346
+            width: 73
+            height: 60
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 6
+            widgets:
+              - label:
+                  align: TOP_MID
+                  text: "ABV"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_abv
+                  align: BOTTOM_MID
+                  y: -4
+                  text: "6.6%"
+                  text_color: 0x00FF7F
+                  text_font: noto_14
+        - obj:
+            x: 251
+            y: 346
+            width: 61
+            height: 60
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0x1F3540
+            radius: 12
+            pad_all: 6
+            widgets:
+              - label:
+                  align: TOP_MID
+                  text: "IBU"
+                  text_color: 0x4FB3FF
+                  text_font: noto_14
+              - label:
+                  id: batch_ibu
+                  align: BOTTOM_MID
+                  y: -4
+                  text: "66"
+                  text_color: 0x00FF7F
+                  text_font: noto_14
+
+        # ╔═══ Card 10: TENDING THE FLAME (orange — distinct from BREW DAY) ╗
+        - obj:
+            x: 8
+            y: 416
+            width: 304
+            height: 50
+            bg_color: 0x0A1419
+            bg_opa: COVER
+            border_width: 1
+            border_color: 0xFFD27F
+            radius: 12
+            pad_all: 12
+            widgets:
+              - label:
+                  align: CENTER
+                  x: -95
+                  text: ""   # local_fire_department (ef55)
+                  text_color: 0xFFD27F
+                  text_font: icons_22
+              - label:
+                  id: heartbeat
+                  align: CENTER
+                  x: 12
+                  text: "TENDING THE FLAME [0]"
+                  text_color: 0xFFD27F
+                  text_font: noto_14
+
+# ── Heartbeat: tick a counter every 2s, mirror to log + footer ─────
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          id(heartbeat_n) += 1;
+      - logger.log:
+          format: "[%d] tending the flame..."
+          args: ['id(heartbeat_n)']
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[48];
+            snprintf(buf, sizeof(buf), "TENDING THE FLAME [%d]", id(heartbeat_n));
+            return std::string(buf);

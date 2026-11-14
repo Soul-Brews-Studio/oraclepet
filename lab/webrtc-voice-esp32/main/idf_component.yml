@@ -1,0 +1,20 @@
+dependencies:
+  idf:
+    version: ">=5.4"
+  espressif/esp_codec_dev: "^2.0.0-beta1"   # av_render needs 2.x
+  espressif/esp_peer:
+    version: "*"
+    override_path: ../.work/esp-webrtc-solution/components/esp_peer
+  tempotian/av_render:
+    version: "*"
+    override_path: ../.work/esp-webrtc-solution/components/av_render
+  tempotian/media_lib_utils:
+    version: "*"
+    override_path: ../.work/esp-webrtc-solution/components/media_lib_utils
+  esp_webrtc:
+    version: "*"
+    path: ../.work/esp-webrtc-solution/components/esp_webrtc
+  webrtc_utils:
+    version: "*"
+    path: ../.work/esp-webrtc-solution/components/webrtc_utils
+  espressif/cjson: "^1.7.19"   # IDF 6 moved cJSON out of the tree

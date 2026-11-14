@@ -1,0 +1,147 @@
+/* Mirror of the ESP32 LVGL dashboard, in HTML/CSS.
+   The card is designed at a FIXED size (so proportions are locked) and
+   then scaled uniformly to fill the window via a transform set in
+   main.js (fitScale). This keeps the exact aspect ratio while zooming
+   to whatever the window allows — like the device screen, just bigger. */
+:root {
+  --bg: #000;
+  --header: #ffd27f;
+  --dim: #888;
+  --section-title: #ccc;
+  --ctx-label: #4fb3ff;
+  --q7d-label: #ffa040;
+  --bar-bg: #202020;
+  --bar-border: #444;
+  --green: #00ff7f;
+  --yellow: #ffc040;
+  --red: #ff4040;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+
+body {
+  background: var(--bg);
+  color: #fff;
+  font-family: -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;          /* center the scaled card both axes */
+  min-height: 100vh;
+}
+
+/* ── Fixed design (360-wide). All sizes are constant px so the whole
+      card scales as one unit — aspect ratio never changes. ── */
+.dashboard {
+  width: 360px;
+  flex-shrink: 0;          /* never reflow/wrap — scale handles fitting */
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 8px 0;
+  transform-origin: center center;  /* JS sets transform: scale(N) */
+}
+
+/* Portrait (default): the pane wrappers are transparent — their children
+   flow directly in the single vertical column, identical to before. */
+.pane-id, .pane-stats { display: contents; }
+
+/* Keep model badge + labels on one line; scale shrinks them to fit. */
+.header, .model, .bar-label { white-space: nowrap; }
+
+/* ── Landscape: wide window → two columns (identity | stats), footer
+      spans the bottom. fitScale() still zooms the whole card to fit. ── */
+@media (orientation: landscape) {
+  .dashboard {
+    width: 760px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "id stats"
+      "footer footer";
+    column-gap: 56px;
+    row-gap: 12px;
+    align-items: center;
+  }
+  .pane-id {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    grid-area: id;
+  }
+  .pane-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    grid-area: stats;
+  }
+  .footer { grid-area: footer; }
+}
+
+.header {
+  color: var(--header);
+  font-size: 26px;
+  margin: 0;
+  text-align: center;
+  font-weight: 600;
+}
+
+.model {
+  text-align: center;
+  font-size: 46px;
+  color: var(--header);
+  font-weight: 700;
+  margin-top: 6px;
+  line-height: 1.05;
+}
+
+.model-ctx {
+  text-align: center;
+  font-size: 16px;
+  color: var(--dim);
+}
+
+.section { display: flex; flex-direction: column; gap: 8px; }
+.section-title {
+  font-size: 16px;
+  color: var(--section-title);
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.bar {
+  width: 100%;
+  height: 28px;
+  background: var(--bar-bg);
+  border: 1px solid var(--bar-border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--green);
+  border-radius: 4px;
+  transition: width 0.4s ease, background-color 0.3s;
+}
+
+.bar-fill.yellow { background: var(--yellow); }
+.bar-fill.red    { background: var(--red); }
+
+.bar-label {
+  font-size: 24px;
+  text-align: center;
+  margin-top: 2px;
+}
+.ctx-label { color: var(--ctx-label); }
+.q7d-label { color: var(--q7d-label); }
+
+.footer {
+  margin-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--dim);
+}

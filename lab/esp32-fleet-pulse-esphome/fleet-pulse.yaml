@@ -1,0 +1,159 @@
+# esp32-fleet-pulse-esphome — ESPHome + LVGL fleet session-list dashboard.
+# JC3248W535 (ESP32-S3 + AXS15231 QSPI 320x480) polls maw /api/ls every 5s and
+# renders the tmux session list via LVGL. Display base reused verbatim from
+# ../jc3248w535/jc3248w535.yaml. Built by the /team-agents team fleet-pulse-esphome
+# (base-port + lvgl-ui + http-json).
+
+substitutions:
+  backend_url: "http://192.168.1.109:3456/api/ls"
+
+esphome:
+  name: fleet-pulse
+  friendly_name: Fleet Pulse
+  comment: "320x480 QSPI — tmux fleet session list"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG   # keep /dev/cu.usbmodem* alive at runtime
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# ── HTTP client for the maw backend ────────────────────────────────
+http_request:
+  id: http_client
+  timeout: 12s
+  verify_ssl: false
+  useragent: esp32-fleet-pulse/1.0
+  follow_redirects: true
+  redirect_limit: 3
+  buffer_size_rx: 1024             # esp-idf http rx buffer (default 512)
+
+# ── QSPI bus for the AXS15231 display ──────────────────────────────
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+# ── Backlight on GPIO 1, LEDC PWM ──────────────────────────────────
+output:
+  - platform: ledc
+    pin: 1
+    id: backlight_pwm
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# ── Display: AXS15231 over QSPI, 320x480 ───────────────────────────
+display:
+  - platform: mipi_spi
+    model: AXS15231
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin: 45
+    dimensions:
+      width: 320
+      height: 480
+    color_order: rgb
+    invert_colors: false
+    data_rate: 40MHz
+    update_interval: never
+    auto_clear_enabled: false
+
+# ── LVGL: header + 16 session rows (built-in montserrat fonts) ─────
+lvgl:
+  displays:
+    - lcd
+  bg_color: 0x000000
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      bg_opa: COVER
+      pad_all: 4
+      widgets:
+        - label: { id: hdr,    align: TOP_LEFT, x: 6, y: 4,   text_font: montserrat_16, text_color: 0x07E7FF, text: "fleet-pulse  connecting..." }
+        - label: { id: row_0,  align: TOP_LEFT, x: 6, y: 28,  text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_1,  align: TOP_LEFT, x: 6, y: 55,  text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_2,  align: TOP_LEFT, x: 6, y: 82,  text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_3,  align: TOP_LEFT, x: 6, y: 109, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_4,  align: TOP_LEFT, x: 6, y: 136, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_5,  align: TOP_LEFT, x: 6, y: 163, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_6,  align: TOP_LEFT, x: 6, y: 190, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_7,  align: TOP_LEFT, x: 6, y: 217, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_8,  align: TOP_LEFT, x: 6, y: 244, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_9,  align: TOP_LEFT, x: 6, y: 271, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_10, align: TOP_LEFT, x: 6, y: 298, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_11, align: TOP_LEFT, x: 6, y: 325, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_12, align: TOP_LEFT, x: 6, y: 352, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_13, align: TOP_LEFT, x: 6, y: 379, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_14, align: TOP_LEFT, x: 6, y: 406, text_font: montserrat_14, text_color: 0x888888, text: "" }
+        - label: { id: row_15, align: TOP_LEFT, x: 6, y: 433, text_font: montserrat_14, text_color: 0x888888, text: "" }
+
+# ── Poll maw /api/ls every 5s → parse JSON → update LVGL labels ────
+interval:
+  - interval: 5s
+    then:
+      - logger.log: "[fleet] polling /api/ls ..."
+      - http_request.get:
+          url: ${backend_url}
+          capture_response: true
+          max_response_buffer_size: 8192   # /api/ls is ~2.8KB; default 1KB truncates → JSON IncompleteInput
+          on_response:
+            then:
+              - lambda: |-
+                  ESP_LOGI("fleet", "http status=%d  body=%d bytes", response->status_code, (int) body.length());
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    lv_obj_t *rows[16] = {
+                      id(row_0),  id(row_1),  id(row_2),  id(row_3),
+                      id(row_4),  id(row_5),  id(row_6),  id(row_7),
+                      id(row_8),  id(row_9),  id(row_10), id(row_11),
+                      id(row_12), id(row_13), id(row_14), id(row_15)
+                    };
+                    std::string node   = root["node"]   | "?";
+                    std::string oracle = root["oracle"] | "?";
+                    JsonArray sessions = root["sessions"].as<JsonArray>();
+                    int n = sessions.size();
+                    char hdrbuf[96];
+                    snprintf(hdrbuf, sizeof(hdrbuf), "%s/%s  %d sessions",
+                             node.c_str(), oracle.c_str(), n);
+                    lv_label_set_text(id(hdr), hdrbuf);
+                    int i = 0;
+                    for (JsonObject sess : sessions) {
+                      if (i >= 16) break;
+                      std::string name  = sess["name"] | "?";
+                      JsonArray windows = sess["windows"].as<JsonArray>();
+                      int nw = windows.size();
+                      bool active = false;
+                      for (JsonObject w : windows) {
+                        if (w["active"] | false) { active = true; break; }
+                      }
+                      char rowbuf[64];
+                      snprintf(rowbuf, sizeof(rowbuf), "%s%s  %dw",
+                               active ? "* " : "  ", name.c_str(), nw);
+                      lv_label_set_text(rows[i], rowbuf);
+                      lv_obj_set_style_text_color(rows[i],
+                          lv_color_hex(active ? 0xFFFFFF : 0x888888), 0);
+                      i++;
+                    }
+                    for (; i < 16; i++) lv_label_set_text(rows[i], "");
+                    return true;
+                  });

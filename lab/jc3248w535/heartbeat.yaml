@@ -1,0 +1,147 @@
+esphome:
+  name: oracle-face
+  friendly_name: Oracle Face
+  comment: "ψ esp32-oracle — first body with a screen (Massmore JC3248W535EN, 320x480 QSPI)"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Oracle-Face Fallback"
+    password: !secret ap_fallback_password
+
+captive_portal:
+
+# ── QSPI bus for the AXS15231 display ──────────────────────────────
+spi:
+  - id: lcd_spi
+    type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+# ── Backlight on GPIO 1, LEDC PWM ──────────────────────────────────
+output:
+  - platform: ledc
+    pin: 1
+    id: backlight_pwm
+    frequency: 5000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 200ms
+
+# ── Display: AXS15231 over QSPI, 320x480 ───────────────────────────
+display:
+  - platform: mipi_spi
+    model: AXS15231
+    id: lcd
+    spi_id: lcd_spi
+    cs_pin: 45
+    dimensions:
+      width: 320
+      height: 480
+    color_order: rgb
+    invert_colors: false
+    data_rate: 40MHz
+    update_interval: never
+    auto_clear_enabled: false
+
+# ── Fonts: Noto Sans (carries ψ, U+03C8) ───────────────────────────
+font:
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_14
+    size: 14
+    glyphs: &noto_glyphs " ψabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?:-[]"
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_22
+    size: 22
+    glyphs: *noto_glyphs
+  - file: "sim/fonts/NotoSans-Regular.ttf"
+    id: noto_28
+    size: 28
+    glyphs: *noto_glyphs
+
+# ── LVGL: a single label that shows boot banner + heartbeat ────────
+lvgl:
+  displays:
+    - lcd
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x000000
+            border_width: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  id: banner
+                  align: TOP_MID
+                  y: 24
+                  text: "ψ esp32-oracle"
+                  text_color: 0xFFD27F
+                  text_font: noto_28
+              - label:
+                  id: subtitle
+                  align: TOP_MID
+                  y: 64
+                  text: "first body with a screen"
+                  text_color: 0x888888
+                  text_font: noto_14
+              - label:
+                  id: heartbeat
+                  align: CENTER
+                  text: "[0] tending the flame..."
+                  text_color: 0x00FF7F
+                  text_font: noto_22
+
+# ── Heartbeat: tick a counter every 2s, mirror to log + LVGL label ─
+globals:
+  - id: heartbeat_n
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          id(heartbeat_n) += 1;
+      - logger.log:
+          format: "[%d] tending the flame..."
+          args: ['id(heartbeat_n)']
+      - lvgl.label.update:
+          id: heartbeat
+          text: !lambda |-
+            char buf[48];
+            snprintf(buf, sizeof(buf), "[%d] tending the flame...", id(heartbeat_n));
+            return std::string(buf);

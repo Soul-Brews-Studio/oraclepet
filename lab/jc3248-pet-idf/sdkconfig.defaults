@@ -1,0 +1,131 @@
+# ================================================================
+# jc3248-pet-idf — sdkconfig.defaults
+# Board: Guition JC3248W535 = ESP32-S3 (WROOM-1)
+#   - 8MB flash, QIO mode
+#   - 8MB OCTAL (OPI) PSRAM @ 80MHz  (Arduino: memory_type = qio_opi)
+#   - NO UART bridge on the USB-C: console is the built-in
+#     USB-Serial-JTAG peripheral (VID 303A:1001 -> /dev/cu.usbmodem2101)
+# ================================================================
+
+# ---- Target ----
+CONFIG_IDF_TARGET="esp32s3"
+
+# ---- Console over built-in USB-Serial-JTAG -----------------------------------
+# THE single most important setting on this board. There is no UART-to-USB
+# bridge chip; the USB-C port is the S3's native USB-Serial-JTAG. Without this,
+# ESP_LOGI / printf go to UART0 pins that are not wired to USB and NOTHING
+# appears in the monitor.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# (these two are implied by the choice above, set explicitly for clarity)
+# CONFIG_ESP_CONSOLE_UART=n
+# CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# ---- Flash: 8MB, QIO ---------------------------------------------------------
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# ---- PSRAM: OCTAL (OPI) @ 80MHz ----------------------------------------------
+# This is the "_opi" half of the Arduino "qio_opi" memory_type. Selecting the
+# octal mode pins the S3 into the correct PSRAM interface; getting this wrong
+# (e.g. leaving it quad) means esp_psram_init() fails and esp_psram_get_size()
+# returns 0.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+# Map PSRAM into the heap so heap_caps(... MALLOC_CAP_SPIRAM) reports its size.
+CONFIG_SPIRAM_USE_MALLOC=y
+# Surface a clear boot-time abort if PSRAM does NOT init — we WANT step 1 to
+# fail loudly if the OPI config is wrong rather than silently run without it.
+CONFIG_SPIRAM_IGNORE_NOTFOUND=n
+
+# ---- Partition table: custom (step 5) ----------------------------------------
+# Step 1 used SINGLE_APP_LARGE (no data partition). Step 5 adds a LittleFS image
+# for the bufo GIF pack, so we switch to the custom table in partitions.csv:
+# nvs + phy_init + 2.5MB factory + 3MB littlefs "storage".
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# (When CUSTOM is set, the offset is read from the CSV; this just names the file
+#  the build feeds to gen_esp32part.py. Leaving SINGLE_APP_LARGE set here would
+#  conflict — Kconfig is a choice, so selecting CUSTOM deselects it.)
+
+# ---- STEP 11: BLE OTA (ota_0 / ota_1 in partitions.csv) -----------------------
+# Rollback: a new image boots as PENDING_VERIFY; the app marks it valid once
+# display + BLE are up (main.c). If it crashes or resets first, the bootloader
+# falls back to the previous slot, so a bad upload never bricks the pet.
+# This changes the bootloader: the first flash after it must be over USB.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# ---- STEP 9: BLE — NimBLE host + ESP32-S3 controller --------------------------
+# Enable Bluetooth, pick the NimBLE host (BLE-only, lighter than Bluedroid) and
+# the built-in controller. The NUS bridge in ble.c is a GATT peripheral that
+# advertises "Claude-XXXX" and accepts heartbeat writes from the desktop.
+#
+# !!! CRITICAL — fullclean required !!!
+# sdkconfig.defaults ONLY seeds a *fresh* sdkconfig. The committed sdkconfig was
+# generated BEFORE BT was enabled, so adding these lines does NOT turn BT on for
+# an existing tree — the build will fail with "nimble/nimble_port.h: No such
+# file" or undefined ble_* symbols. Regenerate the config first:
+#     make fullclean        (or: rm sdkconfig && idf.py reconfigure)
+# This is the SAME gotcha we hit enabling the custom partition table.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_CONTROLLER_ENABLED=y
+
+# Peripheral + OBSERVER: advertises + accepts connections (usage), AND scans for
+# the host's connectionless time broadcast (step-10 clock). CENTRAL stays off — we
+# never initiate outbound connections, only listen for adverts.
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+
+# One central at a time (the desktop). Smaller conn table.
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+
+# RAM placement: NimBLE's heap allocations default to INTERNAL SRAM. The 307KB
+# RGB565 framebuffer + GIF decode buffers already live in PSRAM (MALLOC_CAP_SPIRAM),
+# so internal SRAM should have room for the NimBLE host (~30-40KB) + controller.
+# If a build/runtime shows internal-heap exhaustion (malloc fails, BLE won't
+# advertise), move NimBLE's pool to PSRAM by switching the line below:
+#   CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+# Default (INTERNAL) is kept for now — flag if heap headroom gets tight.
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL=y
+
+# ---- STEP 11: BLE OTA throughput ---------------------------------------------
+# A firmware image is ~650K. With the default 256-byte MTU each write carries 253
+# bytes; 517 lets macOS send 512-byte chunks (its ceiling), about twice as fast.
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
+
+# ---- STEP 12: pet apps on WebAssembly (WAMR, main/petapp.c) -------------------
+# Fast interpreter + the builtin libc only: an app is a small freestanding .wasm
+# built with lab/pet-sdk. No AOT (images are per-chip), no WASI (apps get the pet
+# API, not files/sockets), no pthreads, no WAMR app framework.
+CONFIG_WAMR_ENABLE_INTERP=y
+CONFIG_WAMR_INTERP_FAST=y
+CONFIG_WAMR_ENABLE_LIBC_BUILTIN=y
+# CONFIG_WAMR_ENABLE_AOT is not set
+# CONFIG_WAMR_ENABLE_LIBC_WASI is not set
+# CONFIG_WAMR_ENABLE_LIB_PTHREAD is not set
+# CONFIG_WAMR_ENABLE_APP_FRAMEWORK is not set
+# zig/LLVM emit the reference-types encoding even for a plain call_indirect table
+# (lab/gif-wamr fix #4); without it: "reference types feature which is disabled".
+CONFIG_WAMR_ENABLE_REF_TYPES=y
+# WAMR runs on its own 24 KB pthread (petapp.c); the main task only posts events,
+# but app_main's loop does a lot (GIF decode, HUD, BLE parse): 8 KB of headroom.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# VOICE.md: WiFi and LWIP buffers may live in PSRAM, so internal RAM stays for BLE, OTA and the tasks
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# VOICE.md: WiFi next to BLE, WAMR and the GIF engine left too little internal RAM ("pthread:
+# Failed to create task", "Error create websocket task"). Dynamic TX buffers (PSRAM), fewer
+# static RX buffers, no WiFi IRAM code, and mDNS in PSRAM.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+# The BA window may be at most twice the static RX buffers (wifi_init.c #error). The older build
+# dirs kept 6 from before; a fresh sdkconfig takes the default 16 and fails, so pin it.
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+CONFIG_MDNS_TASK_CREATE_FROM_SPIRAM=y
+CONFIG_MDNS_MEMORY_ALLOC_SPIRAM=y

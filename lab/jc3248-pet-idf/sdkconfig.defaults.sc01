@@ -1,0 +1,5 @@
+# WT32-SC01 Plus (PET_BOARD=sc01), on top of sdkconfig.defaults.
+# Its module is a WT32-S3-WROVER-N16R2: 16 MB flash, 2 MB QUAD PSRAM. The octal mode the
+# JC3248 needs fails PSRAM init here. The 8 MB flash setting stays: partitions.csv ends at 8 MB.
+CONFIG_SPIRAM_MODE_QUAD=y
+# CONFIG_SPIRAM_MODE_OCT is not set

@@ -1,0 +1,4 @@
+# test outputs (re-derivable); keep the built gifdec.wasm/.js as demo artifacts
+dist/*.ppm
+dist/*.log
+dist/*.opt

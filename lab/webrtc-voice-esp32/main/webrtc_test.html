@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OraclePet · WebRTC voice</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  button { font: inherit; padding: .6rem 1.2rem; margin-right: .5rem; }
+  #state { font-weight: 600; }
+  #log { font: 13px ui-monospace, monospace; background: #f4f4f4; padding: .6rem; height: 14rem; overflow: auto; white-space: pre-wrap; }
+  input { font: inherit; width: 70%; }
+</style>
+</head>
+<body>
+<h1>OraclePet 🐈 voice</h1>
+<p>The pet's mic, straight from the ESP32 over WebRTC. State: <span id="state">idle</span></p>
+<p><button id="listen">Listen</button><button id="stop">Stop</button></p>
+<audio id="voice" autoplay controls></audio>
+<p><input id="msg" placeholder="say something to the pet (data channel)"><button id="send">Send</button></p>
+<div id="log"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (s) => { $('log').textContent += s + '\n'; $('log').scrollTop = 1e9; };
+let pc = null, ch = null, es = null, pending = [], chain = Promise.resolve();
+
+function post(msg) {
+  return fetch('/webrtc/signal/post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg) });
+}
+
+function newPeer() {
+  // as Espressif's doorbell page: STUN (Chrome hides LAN IPs behind .local names the ESP32 cannot
+  // resolve, so it needs a reflexive candidate) and one bundled transport
+  pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }], bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+  pending = [];
+  pc.ontrack = (e) => { $('voice').srcObject = e.streams[0] || new MediaStream([e.track]); log('voice track arrived'); };
+  pc.ondatachannel = (e) => { ch = e.channel; ch.onmessage = (m) => log('pet: ' + m.data); ch.onopen = () => log('data channel open'); };
+  pc.onicecandidate = (e) => { if (e.candidate) post({ type: 'candidate', candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex }); };
+  pc.onconnectionstatechange = () => { $('state').textContent = pc.connectionState; };
+  ch = pc.createDataChannel('pet');
+  ch.onmessage = (m) => log('pet: ' + m.data);
+  ch.onopen = () => log('data channel open');
+}
+
+function connectSignal() {
+  es = new EventSource('/webrtc/signal');
+  // one message at a time: the pet's candidates arrive right behind its offer
+  es.onmessage = (ev) => { chain = chain.then(() => handle(JSON.parse(ev.data))).catch((e) => log('error: ' + e)); };
+  es.onerror = () => log('signaling dropped; reload to retry');
+}
+
+async function addCandidate(c) {
+  const cand = c.startsWith('a=') ? c.slice(2) : c;
+  try { await pc.addIceCandidate({ candidate: cand, sdpMid: '0', sdpMLineIndex: 0 }); } catch (e) { log('candidate: ' + e); }
+}
+
+async function handle(m) {
+  {
+    if (m.type === 'heartbeat' || m.type === 'connected') return;
+    if (m.error) { log('signaling: ' + m.error); return; }
+    if (m.type === 'offer') {
+      if (!pc) newPeer();
+      await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      for (const c of pending) await addCandidate(c);
+      pending = [];
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await post({ type: 'answer', sdp: pc.localDescription.sdp });
+      log('answered the pet');
+    } else if (m.type === 'candidate' && pc) {
+      if (pc.remoteDescription) await addCandidate(m.candidate); else pending.push(m.candidate);
+    } else if (m.type === 'bye') {
+      log('pet hung up');
+    }
+  }
+}
+
+$('listen').onclick = async () => {
+  if (!es) connectSignal();
+  if (pc) { pc.close(); pc = null; }
+  newPeer();
+  await post({ type: 'customized', data: 'LISTEN' });
+  $('state').textContent = 'calling the pet…';
+};
+$('stop').onclick = async () => {
+  await post({ type: 'customized', data: 'STOP' });
+  if (pc) { pc.close(); pc = null; }
+  $('state').textContent = 'idle';
+};
+$('send').onclick = () => { if (ch && ch.readyState === 'open') { ch.send($('msg').value); log('you: ' + $('msg').value); $('msg').value = ''; } };
+connectSignal();
+</script>
+</body>
+</html>

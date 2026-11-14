@@ -1,0 +1,17 @@
+[build]
+target = "xtensa-esp32s3-espidf"
+
+[target.xtensa-esp32s3-espidf]
+linker = "ldproxy"
+runner = "espflash flash --monitor"
+rustflags = ["--cfg", "espidf_time64"]
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
+[env]
+MCU = "esp32s3"
+# Build against the ESP-IDF already on this machine (v6.0.3): run `. ~/esp/esp-idf-v6/export.sh`
+# and `. ~/export-esp.sh` first (tools/build.sh does both).
+ESP_IDF_TOOLS_INSTALL_DIR = { value = "fromenv" }
+ESP_IDF_SDKCONFIG_DEFAULTS = { value = "sdkconfig.defaults", relative = true }
