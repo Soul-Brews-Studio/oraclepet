@@ -39,8 +39,8 @@ cp -R "$DIST"/. "$SITE/firmware/"
 if command -v zig >/dev/null; then
   mkdir -p "$SITE/apps"
   ( cd "$ROOT/lab/pet-sdk" && for src in examples/*.c examples/*.zig; do
-      ./build.sh "$src" >/dev/null 2>&1 && cp "build/$(basename "${src%.*}").wasm" "$SITE/apps/" \
-        || echo "skip app $src (build failed)"
+      ./build.sh "$src" >/tmp/petapp-build.log 2>&1 && cp "build/$(basename "${src%.*}").wasm" "$SITE/apps/" \
+        || { echo "skip app $src (build failed):"; tail -5 /tmp/petapp-build.log; }
     done )
 else
   echo "no zig: the preview has no example apps"
