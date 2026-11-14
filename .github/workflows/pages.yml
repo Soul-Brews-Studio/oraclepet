@@ -121,6 +121,20 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    # One queue for every deploy, and only the newest commit goes out: a CI build that
+    # started before a later push (or a release-mode deploy) must not overwrite it.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     steps:
+      - name: Still the newest commit on main?
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          echo "newest=$([ "$head" = "$GITHUB_SHA" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+          [ "$head" = "$GITHUB_SHA" ] || echo "::notice::main is at ${head:0:7}, this run built ${GITHUB_SHA:0:7}: not deploying"
       - id: deployment
+        if: steps.head.outputs.newest == 'yes'
         uses: actions/deploy-pages@v4
