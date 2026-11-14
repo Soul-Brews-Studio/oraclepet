@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import { loadCatalog, partsFor, kb, hex, type Board, type Catalog, type Pack } from './lib/catalog'
 import { flash, usbApi, type Progress } from './lib/flash'
+import { Preview, PreviewIcon } from './components/Preview'
 
 const REPO = 'https://github.com/Soul-Brews-Studio/oraclepet'
 
@@ -19,6 +20,12 @@ export default function App() {
         <Hero packs={cat?.packs ?? []} />
         <Steps />
         {err && <Note tone="bad">Could not load the firmware list: {err}</Note>}
+        {cat && (
+          <section id="preview" className="mt-16 scroll-mt-6">
+            <SectionTitle icon={PreviewIcon} title="Preview" sub="The pet's screen in your browser: every character's animations, and the example WebAssembly apps running on the same API the firmware gives them." />
+            <Preview cat={cat} />
+          </section>
+        )}
         {cat && <Flasher cat={cat} />}
         {cat && <BaseSection cat={cat} />}
         <BleSection />
@@ -37,6 +44,7 @@ function Header() {
           OraclePet
         </a>
         <nav className="flex items-center gap-4 text-sm text-ink-400 sm:gap-5">
+          <a href="#preview" className="hidden hover:text-ink-50 sm:inline">Preview</a>
           <a href="#flash" className="hidden hover:text-ink-50 sm:inline">USB install</a>
           <a href="ble/" className="flex items-center gap-1.5 hover:text-ink-50" aria-label="Bluetooth tool"><Bluetooth className="size-4 sm:hidden" /><span className="hidden sm:inline">Bluetooth tool</span></a>
           <a href="firmware/" className="hidden hover:text-ink-50 sm:inline">Firmware</a>

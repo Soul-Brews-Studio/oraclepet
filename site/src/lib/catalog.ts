@@ -27,6 +27,7 @@ export interface Pack {
 }
 
 export interface Catalog {
+  apps: string[] // example pet apps: apps/<name>.wasm
   commit: string
   built: string
   boards: Board[]

@@ -89,6 +89,12 @@ jobs:
         env:
           TZ: Asia/Bangkok
         run: cd lab/oraclepet-lib/web && node --test
+      - uses: mlugg/setup-zig@v2   # compiles the example pet apps for the preview
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
       - name: Assemble site
         run: tools/site/build-site.sh
       - uses: actions/upload-pages-artifact@v3

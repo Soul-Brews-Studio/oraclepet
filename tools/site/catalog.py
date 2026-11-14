@@ -71,12 +71,20 @@ for m in sorted((ROOT / "lab/buddy/characters").glob("*/manifest.json")):
     if not idle or not (m.parent / idle).exists():
         continue
     shutil.copy(m.parent / idle, site / "packs" / f"{pid}.gif")
+    # every state GIF under one name, for the preview: packs/<id>/<state>.gif
+    (site / "packs" / pid).mkdir(exist_ok=True)
+    for state, f in data.get("states", {}).items():
+        f = f if isinstance(f, str) else (f or [None])[0]
+        if f and (m.parent / f).exists():
+            shutil.copy(m.parent / f, site / "packs" / pid / f"{state}.gif")
     lic = "see PROVENANCE.md" if (m.parent / "PROVENANCE.md").exists() else "see README.md"
     packs.append({"id": pid, "name": data.get("name", pid), "image": f"packs/{pid}.gif", "license": lic})
 
 # bufo first: it is the default and the site icon.
 packs.sort(key=lambda p: (p["id"] != "bufo", p["id"]))
-cat = {"commit": commit, "built": time.strftime("%Y-%m-%d", time.gmtime()), "boards": boards, "packs": packs}
+# Example pet apps (lab/pet-sdk/examples), built by build-site.sh into apps/<name>.wasm.
+apps = sorted(f.stem for f in (site / "apps").glob("*.wasm")) if (site / "apps").is_dir() else []
+cat = {"apps": apps, "commit": commit, "built": time.strftime("%Y-%m-%d", time.gmtime()), "boards": boards, "packs": packs}
 (site / "firmware").mkdir(parents=True, exist_ok=True)
 (site / "firmware" / "index.json").write_text(json.dumps(cat, indent=1))
-print(f"index.json: {len(boards)} boards, {len(packs)} characters")
+print(f"index.json: {len(boards)} boards, {len(packs)} characters, {len(apps)} apps")

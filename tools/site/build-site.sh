@@ -35,6 +35,17 @@ cp -R "$DIST"/. "$SITE/firmware/"
   echo '</ul></main>'
 } > "$SITE/firmware/index.html"
 
+# Example pet apps for the preview and for sending over BLE (needs zig; skipped without it).
+if command -v zig >/dev/null; then
+  mkdir -p "$SITE/apps"
+  ( cd "$ROOT/lab/pet-sdk" && for src in examples/*.c examples/*.zig; do
+      ./build.sh "$src" >/dev/null 2>&1 && cp "build/$(basename "${src%.*}").wasm" "$SITE/apps/" \
+        || echo "skip app $src (build failed)"
+    done )
+else
+  echo "no zig: the preview has no example apps"
+fi
+
 # firmware/index.json + packs/<id>.gif for the React page.
 python3 "$ROOT/tools/site/catalog.py" "$DIST" "$SITE" "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo local)}"
 
