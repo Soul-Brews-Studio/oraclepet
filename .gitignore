@@ -68,3 +68,4 @@ webflasher/
 /dist/
 /_site/
 lab/jc3248-pet-idf/data/
+/.cache/

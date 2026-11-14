@@ -1,10 +1,20 @@
 name: firmware + web flasher
 
+# push to main / PR: build the firmware in CI, then the site.
+# workflow_dispatch firmware=release: skip the firmware build and deploy the
+#   files from the "firmware-latest" release (tools/site/publish-local.sh).
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      firmware:
+        description: "ci = build firmware here, release = use the firmware-latest release asset"
+        type: choice
+        options: [ci, release]
+        default: ci
 
 permissions:
   contents: read
@@ -15,15 +25,39 @@ concurrency:
 
 jobs:
   firmware:
+    if: inputs.firmware != 'release'
     runs-on: ubuntu-latest
     container: espressif/idf:v6.0.3
+    env:
+      IDF_CCACHE_ENABLE: "1"
+      CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+      CCACHE_MAXSIZE: 500M
+      IDF_COMPONENT_CACHE_PATH: ${{ github.workspace }}/.cache/idf-components
     steps:
       - uses: actions/checkout@v4
+      # 1. Nothing the firmware is built from changed: reuse the last dist/ as is.
+      - name: Firmware cache
+        id: fw
+        uses: actions/cache@v4
+        with:
+          path: dist/
+          key: fw-v6.0.3-${{ hashFiles('lab/jc3248-pet-idf/**', 'lab/buddy/characters/**', 'tools/site/build-firmware.sh') }}
+      # 2. Something changed: rebuild, but with compiler and component caches.
+      - name: Compiler and component cache
+        if: steps.fw.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/
+          key: build-v6.0.3-${{ github.sha }}
+          restore-keys: build-v6.0.3-
       - name: Build pet firmware (jc3248 packs, sc01, lcd28)
+        if: steps.fw.outputs.cache-hit != 'true'
         shell: bash
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           . "$IDF_PATH/export.sh"
           tools/site/build-firmware.sh
+          ccache -s || true
       - uses: actions/upload-artifact@v4
         with:
           name: firmware
@@ -32,13 +66,24 @@ jobs:
 
   site:
     needs: firmware
+    if: always() && (needs.firmware.result == 'success' || needs.firmware.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Firmware from this run
+        if: needs.firmware.result == 'success'
+        uses: actions/download-artifact@v4
         with:
           name: firmware
           path: dist/
+      - name: Firmware from the firmware-latest release
+        if: needs.firmware.result == 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download firmware-latest -R "$GITHUB_REPOSITORY" -p firmware.tar.gz -O /tmp/fw.tar.gz
+          mkdir -p dist && tar -xzf /tmp/fw.tar.gz -C dist
+          (cd dist && sha256sum -c SHA256SUMS)
       - name: Test the browser BLE library
         run: cd lab/oraclepet-lib/web && node --test
       - name: Assemble site
@@ -48,7 +93,7 @@ jobs:
           path: _site/
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: always() && needs.site.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: site
     runs-on: ubuntu-latest
     permissions:
