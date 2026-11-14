@@ -1,4 +1,4 @@
-/// MQTT client wrapper that connects to mqtt.example.com and exposes each
+/// MQTT client wrapper that connects to localhost and exposes each
 /// retained xiaoer/active/* topic as a Stream<String>.
 ///
 /// Used by [BrewingScreen] to populate the dashboard live — same data path
@@ -9,7 +9,7 @@ import 'mqtt_client_io.dart' if (dart.library.html) 'mqtt_client_web.dart';
 
 class MqttService {
   MqttService({
-    this.host = const String.fromEnvironment('MQTT_HOST', defaultValue: 'mqtt.example.com'),
+    this.host = const String.fromEnvironment('MQTT_HOST', defaultValue: 'localhost'),
     this.port = 1883,
     this.username = const String.fromEnvironment('MQTT_USER'),
     this.password = const String.fromEnvironment('MQTT_PASS'),

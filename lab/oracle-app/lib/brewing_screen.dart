@@ -270,7 +270,7 @@ class _BrewingScreenState extends State<BrewingScreen> {
 
   Widget _connectionPill() => Center(
         child: Text(
-          _mqttUp ? '● live · mqtt.example.com' : '○ offline · using cached defaults',
+          _mqttUp ? '● live · localhost' : '○ offline · using cached defaults',
           style: TextStyle(color: _mqttUp ? _accent : _muted, fontSize: 11),
         ),
       );

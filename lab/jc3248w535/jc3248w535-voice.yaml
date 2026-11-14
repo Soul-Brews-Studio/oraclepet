@@ -21,7 +21,7 @@ esphome:
 
 substitutions:
   # !! SET THIS to the Neo Genesis broker. Default = fleet broker.
-  mqtt_broker: "mqtt.example.com"
+  mqtt_broker: "localhost"   # on the board, set your broker's LAN address (localhost is the board itself)
   speak_topic: "NeoGenesis/speak"
 
 # MQTT push: payload of ${speak_topic} = a URL to a wav/mp3 -> play it.

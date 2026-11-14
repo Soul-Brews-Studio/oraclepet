@@ -1,7 +1,7 @@
 /// Web MQTT client — WebSocket transport (Mosquitto default WS port 8083).
 /// Browsers can't open raw TCP sockets so we tunnel MQTT over WS.
 ///
-/// If mqtt.example.com doesn't expose a WebSocket listener, this connection
+/// If localhost doesn't expose a WebSocket listener, this connection
 /// will fail and the UI will fall back to cached defaults (offline mode).
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_browser_client.dart';
