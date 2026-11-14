@@ -46,7 +46,11 @@ async function openPort(api: Api): Promise<SerialPort> {
 
 export async function flash({ images, eraseAll, log, progress }: Opts): Promise<string> {
   const api = usbApi()
-  progress({ phase: 'download', done: 0, message: 'Downloading firmware' })
+  // requestPort() must be the first await after the click: the browser only shows the port
+  // picker while the user gesture is still active, so the download comes after it.
+  progress({ phase: 'connect', done: 0, message: 'Pick the board in the browser list' })
+  const port = await openPort(api)
+  progress({ phase: 'download', done: 0.01, message: 'Downloading firmware' })
   const blobs: Uint8Array[] = []
   for (const [i, img] of images.entries()) {
     const r = await fetch(img.url)
@@ -55,8 +59,6 @@ export async function flash({ images, eraseAll, log, progress }: Opts): Promise<
     progress({ phase: 'download', done: (0.05 * (i + 1)) / images.length, message: `Downloaded ${i + 1} of ${images.length} files` })
   }
 
-  progress({ phase: 'connect', done: 0.05, message: 'Pick the board in the browser list' })
-  const port = await openPort(api)
   const transport = new Transport(port, false)
   const terminal: IEspLoaderTerminal = {
     clean() {},
