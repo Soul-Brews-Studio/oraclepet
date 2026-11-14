@@ -26,17 +26,18 @@ if [ -z "${SKIP_BUILD:-}" ]; then
 fi
 [ -f dist/SHA256SUMS ] || { echo "no dist/SHA256SUMS: build first" >&2; exit 1; }
 
-tar -czf /tmp/oraclepet-firmware.tar.gz -C dist .
+PKG="$(mktemp -d)/firmware.tar.gz"
+tar -czf "$PKG" -C dist .
 SRC="$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)"
 NOTES="Firmware for the web flasher, built locally from $SRC with $(idf.py --version 2>/dev/null || echo ESP-IDF).
 
 $(cat dist/SHA256SUMS)"
 
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
-  gh release upload "$TAG" /tmp/oraclepet-firmware.tar.gz --clobber -R "$REPO"
+  gh release upload "$TAG" "$PKG" --clobber -R "$REPO"
   gh release edit "$TAG" --notes "$NOTES" -R "$REPO" >/dev/null
 else
-  gh release create "$TAG" /tmp/oraclepet-firmware.tar.gz --prerelease \
+  gh release create "$TAG" "$PKG" --prerelease \
      --title "Web flasher firmware (latest local build)" --notes "$NOTES" -R "$REPO"
 fi
 
