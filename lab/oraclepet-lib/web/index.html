@@ -10,57 +10,112 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OraclePet</title>
 <style>
-  :root { --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --dim: #6b6a66; --line: #e2e0da; --accent: #3b6ea8; --ok: #2f7d4f; --bad: #b3412e; --warn: #9a6a12; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --card: #20201e; --ink: #ecebe6; --dim: #a19f98; --line: #34332f; --accent: #7aa7da; --ok: #6cc08e; --bad: #e57f6c; --warn: #d8ae5a; } }
+  /* The landing page's world (site/src/index.css): warm near-black, one amber accent. */
+  :root {
+    --bg: #12100c; --card: #1b1812; --raise: #26211a; --line: #3a3226;
+    --ink: #f4eee4; --ink2: #d9cfbf; --dim: #a89a84;
+    --accent: #f0a830; --accent-dim: #b97d1c;
+    --ok: #8fd19e; --bad: #f2917c; --warn: #f0c46a;
+    color-scheme: dark;
+    accent-color: var(--accent);
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line); padding: 10px 16px; display: grid; gap: 8px; }
+  ::selection { background: rgb(240 168 48 / .32); color: var(--ink); }
+  html { scrollbar-color: var(--line) transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code { font: 12.5px ui-monospace, "SF Mono", Menlo, monospace; background: var(--raise); padding: .1em .35em; border-radius: 4px; }
+
+  /* header: the landing page's bar, with the transfer under it */
+  header { position: sticky; top: 0; z-index: 2; background: rgb(18 16 12 / .92); backdrop-filter: blur(10px); border-bottom: 1px solid var(--raise); }
+  @media (max-width: 640px) { header { position: static; } }
+  .bar { max-width: 1200px; margin: 0 auto; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); text-decoration: none; margin-right: 4px; }
+  .brand img { width: 28px; height: 28px; image-rendering: pixelated; border-radius: 6px; }
+  .brand small { color: var(--dim); font-weight: 400; }
+  .spacer { flex: 1; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  h1 { font-size: 18px; margin: 0 8px 0 0; }
-  h2 { font-size: 15px; margin: 0 0 8px; }
-  h3 { font-size: 13px; margin: 12px 0 6px; color: var(--dim); font-weight: 600; }
-  button { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  h2 { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 12px; }
+  h2 .i { color: var(--accent); }
+  h3 { font-size: 13px; margin: 14px 0 6px; color: var(--dim); font-weight: 600; }
+  .i { width: 16px; height: 16px; flex: none; }
+
+  button { font: inherit; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; transition: border-color .15s, background-color .15s; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #12100c; font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #f4b850; }
+  button.on { border-color: var(--accent); background: var(--raise); }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary:disabled { opacity: 1; background: var(--raise); border-color: var(--line); color: var(--dim); font-weight: 500; }
   /* everything you can click shows the hand; file pickers, checkboxes, selects and the log toggle too */
   input[type=file], input[type=checkbox], select, summary, label:has(input) { cursor: pointer; }
-  input[type=file]::file-selector-button { cursor: pointer; }
-  input[type=text], input[type=number], select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); }
-  input[type=number] { width: 5em; }
-  .pill { font-size: 13px; padding: 2px 10px; border-radius: 99px; background: var(--bg); color: var(--dim); }
-  .pill.live { color: var(--ok); }
-  #progress { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 10px; align-items: center; }
-  #progress progress { width: 100%; height: 12px; accent-color: var(--accent); }
-  #progress.failed progress { accent-color: var(--bad); }
-  #pct { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; font-weight: 600; }
+  input[type=file] { font-size: 13px; color: var(--dim); max-width: 100%; }
+  input[type=file]::file-selector-button { font: inherit; cursor: pointer; margin-right: 10px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--raise); color: var(--ink); }
+  input[type=file]::file-selector-button:hover { border-color: var(--accent); }
+  input[type=text], input[type=number], select { font: inherit; font-size: 14px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  input::placeholder { color: #8a7d69; }
+  input[type=number] { width: 5em; font-variant-numeric: tabular-nums; }
+  input[type=checkbox] { width: 15px; height: 15px; vertical-align: -2px; }
+  label { color: var(--ink2); font-size: 14px; }
+
+  .pill { font-size: 13px; padding: 3px 11px; border-radius: 99px; background: var(--raise); color: var(--dim); }
+  .pill.live { color: var(--ok); background: rgb(143 209 158 / .1); }
+
+  #progress { max-width: 1200px; margin: 0 auto; padding: 0 20px 12px; display: grid; grid-template-columns: 1fr auto auto; gap: 6px 12px; align-items: center; }
+  #progress progress { appearance: none; width: 100%; height: 6px; border: 0; border-radius: 99px; background: var(--raise); overflow: hidden; }
+  #progress progress::-webkit-progress-bar { background: var(--raise); border-radius: 99px; }
+  #progress progress::-webkit-progress-value { background: var(--accent); border-radius: 99px; }
+  #progress progress::-moz-progress-bar { background: var(--accent); border-radius: 99px; }
+  #progress.failed progress::-webkit-progress-value { background: var(--bad); }
+  #progress.failed progress::-moz-progress-bar { background: var(--bad); }
+  #pct { font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; font-weight: 600; font-size: 14px; }
+  #cancel { padding: 4px 10px; font-size: 13px; }
   #phase { grid-column: 1 / -1; font-size: 13px; color: var(--dim); min-height: 1.4em; }
-  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; padding: 12px 16px 24px; max-width: 1200px; margin: 0 auto; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-items: start; gap: 16px; padding: 20px 20px 48px; max-width: 1200px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--raise); border-radius: 14px; padding: 18px 20px; min-width: 0; }
   .wide { grid-column: 1 / -1; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 14px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 14px; }
   dt { color: var(--dim); }
-  dd { margin: 0; overflow-wrap: anywhere; }
+  dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .note { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
+  .chips button { padding: 5px 11px; font-size: 13px; }
+  .note { font-size: 13px; color: var(--dim); margin: 10px 0 0; line-height: 1.55; }
   .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
-  .banner { margin: 10px 16px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--warn); color: var(--warn); }
-  .stack { display: grid; gap: 8px; }
-  .packs > div { border-top: 1px solid var(--line); padding: 6px 0; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  .banner { max-width: 1160px; margin: 16px auto 0; padding: 10px 14px; border-radius: 10px; border: 1px solid rgb(240 196 106 / .4); background: rgb(240 168 48 / .06); color: var(--ink2); }
+  .stack { display: grid; gap: 10px; }
+  .packs > div { border-top: 1px solid var(--raise); padding: 8px 0; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
   meter { width: 120px; }
-  #log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 280px; overflow: auto; margin: 0; white-space: pre-wrap; }
+  #log { font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: var(--dim); max-height: 300px; overflow: auto; margin: 0; white-space: pre-wrap; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
   #log .bad { color: var(--bad); } #log .event { color: var(--accent); }
+  #log:empty::before { content: "Nothing yet. Connect a pet or try the simulated one."; }
   [hidden] { display: none !important; }
+
+  /* From this site: the published builds as tiles, like the landing page's character cards */
+  #sitecard { grid-column: 1 / -1; }
+  @media (min-width: 1120px) { #sitecard { grid-column: span 2; } }
+  #sitecard .sub { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 8px; font-weight: 600; font-size: 14px; }
+  #sitecard .sub:first-of-type { margin-top: 4px; }
+  #sitecard .sub .note { margin: 0; font-weight: 400; }
+  #sitefw, #siteapps { display: flex; flex-wrap: wrap; gap: 8px; }
+  #sitepacks { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+  #sitepacks button { flex-direction: column; align-items: stretch; gap: 6px; padding: 6px 6px 8px; border-radius: 12px; font-size: 13px; }
+  #sitepacks button img { width: 100% !important; height: auto !important; aspect-ratio: 1; margin: 0 !important; background: #000; border-radius: 8px; object-fit: contain; }
+  #siteapps button { font: 13px ui-monospace, "SF Mono", Menlo, monospace; }
 </style>
 </head>
 <body>
 <header>
-  <div class="row">
-    <h1>OraclePet</h1>
+  <div class="bar">
+    <h1><a class="brand" href="../" title="Back to the OraclePet home page"><img src="../packs/bufo.gif" alt="" onerror="this.remove()">OraclePet <small>· Bluetooth</small></a></h1>
     <span id="link" class="pill">Not connected</span>
-    <button id="connect" class="primary">Connect a pet</button>
+    <span class="spacer"></span>
+    <button id="connect" class="primary"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>Connect a pet</button>
     <button id="disconnect" disabled>Disconnect</button>
-    <button id="sim" title="An in-memory pet (simpet.js): try the page without one">Try a simulated pet</button>
+    <button id="sim" title="An in-memory pet (simpet.js): try the page without one"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></svg>Try a simulated pet</button>
   </div>
   <div id="progress">
     <progress id="bar" max="100" value="0"></progress>
@@ -73,7 +128,7 @@
 
 <main>
   <section class="card" id="petcard">
-    <h2>Pet</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>Pet</h2>
     <dl id="info"><dt>Status</dt><dd>Press <b>Connect a pet</b> and pick a Claude-XXXX in the list.</dd></dl>
     <h3>Animation packs on the pet</h3>
     <div class="chips" id="petpacks"><span class="note">None yet</span></div>
@@ -90,22 +145,22 @@
     </div>
   </section>
 
-  <section class="card wide" id="sitecard" hidden>
-    <h2>From this site</h2>
+  <section class="card" id="sitecard" hidden>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 13v8l-4-4"/><path d="m12 21 4-4"/><path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284"/></svg>From this site</h2>
     <p class="note">The builds published with this page: one click sends them to the connected pet. Firmware is
       checked against the pet's board first; a pet running the OTA base takes any of them.</p>
     <div class="stack">
-      <div><b>Firmware</b> <span id="sitefwnote" class="note"></span></div>
+      <div class="sub">Firmware <span id="sitefwnote" class="note"></span></div>
       <div id="sitefw" class="packs"></div>
-      <div><b>Characters</b> <span class="note">· installed without a restart, then shown</span></div>
+      <div class="sub">Characters <span class="note">· installed without a restart, then shown</span></div>
       <div id="sitepacks" class="packs"></div>
-      <div><b>Apps</b> <span class="note">· WebAssembly, run after they land</span></div>
+      <div class="sub">Apps <span class="note">· WebAssembly, run after they land</span></div>
       <div id="siteapps" class="packs"></div>
     </div>
   </section>
 
   <section class="card">
-    <h2>Firmware</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v2"/><path d="M12 2v2"/><path d="M17 20v2"/><path d="M17 2v2"/><path d="M2 12h2"/><path d="M2 17h2"/><path d="M2 7h2"/><path d="M20 12h2"/><path d="M20 17h2"/><path d="M20 7h2"/><path d="M7 20v2"/><path d="M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>Firmware</h2>
     <div class="stack">
       <input type="file" id="fwfile" accept=".bin,application/octet-stream">
       <div id="fwinfo" class="note">Pick an app image: build/jc3248_pet_idf.bin or build/oraclepet_lcd28.bin. It is checked against the pet's board before anything is sent.</div>
@@ -115,7 +170,7 @@
   </section>
 
   <section class="card">
-    <h2>Animation pack</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/><path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/><circle cx="13" cy="7" r="1" fill="currentColor"/><rect x="8" y="2" width="14" height="14" rx="2"/></svg>Animation pack</h2>
     <div class="stack">
       <input type="file" id="packdir" webkitdirectory multiple>
       <div id="packlist" class="packs"><span class="note">Pick a pack folder (manifest.json + GIFs), or a folder of packs such as lab/buddy/characters.</span></div>
@@ -123,7 +178,7 @@
   </section>
 
   <section class="card">
-    <h2>Pet app</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><polyline points="3.29 7 12 12 20.71 7"/><path d="m7.5 4.27 9 5.15"/></svg>Pet app</h2>
     <div class="stack">
       <input type="file" id="wasmfile" accept=".wasm,application/wasm">
       <div id="wasminfo" class="note">A WebAssembly app built with lab/pet-sdk. Its file name becomes its name (a-z 0-9 - _).</div>
@@ -135,7 +190,7 @@
   </section>
 
   <section class="card">
-    <h2>Sound</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>Sound</h2>
     <div class="stack">
       <div class="row"><button id="selftest" disabled>Test speaker</button><span id="selftestout" class="note"></span></div>
       <div class="row">
@@ -156,7 +211,7 @@
   </section>
 
   <section class="card">
-    <h2>Heartbeat</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>Heartbeat</h2>
     <div class="stack">
       <div class="row">
         <select id="hbstate"><option value="idle">idle</option><option value="busy">busy</option><option value="attention">needs you</option><option value="sleep">asleep</option></select>
@@ -172,7 +227,7 @@
   </section>
 
   <section class="card wide">
-    <h2>Log</h2>
+    <h2><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>Log</h2>
     <pre id="log"></pre>
   </section>
 </main>
