@@ -85,6 +85,9 @@ jobs:
           mkdir -p dist && tar -xzf /tmp/fw.tar.gz -C dist
           (cd dist && sha256sum -c SHA256SUMS)
       - name: Test the browser BLE library
+        # protocol.test.mjs compares tzoff against this clock; at UTC that is -0 vs 0
+        env:
+          TZ: Asia/Bangkok
         run: cd lab/oraclepet-lib/web && node --test
       - name: Assemble site
         run: tools/site/build-site.sh
