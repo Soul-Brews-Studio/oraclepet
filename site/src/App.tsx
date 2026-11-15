@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  Bluetooth, Check, ChevronRight, Cpu, Download, FileCode2, FolderGit2, RotateCcw, ShieldAlert, TriangleAlert, Usb, Zap,
+  Bluetooth, ChevronRight, Cpu, Download, FileCode2, FolderGit2, RotateCcw, ShieldAlert, TriangleAlert, Usb, Zap,
 } from 'lucide-react'
 import { loadCatalog, partsFor, kb, hex, type Board, type Catalog, type Pack } from './lib/catalog'
 import { flash, usbApi, type Progress } from './lib/flash'
@@ -11,14 +11,21 @@ const REPO = 'https://github.com/Soul-Brews-Studio/oraclepet'
 export default function App() {
   const [cat, setCat] = useState<Catalog | null>(null)
   const [err, setErr] = useState('')
-  const [pick, setPick] = useState<{ id: string; n: number } | null>(null)
-  useEffect(() => { loadCatalog().then(setCat, (e) => setErr(String(e))) }, [])
+  // one character for the whole page: the Preview shows it and the USB install starts with it
+  const [pack, setPack] = useState('')
+  useEffect(() => {
+    loadCatalog().then((c) => {
+      setCat(c)
+      setPack((p) => p || (c.packs.some((x) => x.id === 'siamese') ? 'siamese' : c.packs[0]?.id ?? ''))
+    }, (e) => setErr(String(e)))
+  }, [])
   // a character in the hero: show it in the Preview and scroll there
   function showInPreview(id: string) {
-    setPick((p) => ({ id, n: (p?.n ?? 0) + 1 }))
+    setPack(id)
     const el = document.getElementById('pet-screen') ?? document.getElementById('preview')
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
+  const toInstall = () => document.getElementById('flash')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
     <div className="min-h-dvh">
@@ -27,13 +34,13 @@ export default function App() {
         <Hero packs={cat?.packs ?? []} onPick={showInPreview} />
         <Steps />
         {err && <Note tone="bad">Could not load the firmware list: {err}</Note>}
-        {cat && (
+        {cat && pack && (
           <section id="preview" className="mt-16 scroll-mt-6">
-            <SectionTitle icon={PreviewIcon} title="Preview" sub="The pet's screen in your browser: every character's animations, and the example WebAssembly apps running on the same API the firmware gives them." />
-            <Preview cat={cat} pick={pick} />
+            <SectionTitle icon={PreviewIcon} title="Preview and install" sub="Pick a character and watch it on the pet's screen, with the example WebAssembly apps running on the same API the firmware gives them. The one you pick is the firmware you install." />
+            <Preview cat={cat} pack={pack} onPack={setPack} onInstall={toInstall} />
+            <Flasher cat={cat} pack={pack} />
           </section>
         )}
-        {cat && <Flasher cat={cat} />}
         {cat && <BaseSection cat={cat} />}
         <BleSection />
         <Footer cat={cat} />
@@ -118,18 +125,22 @@ function Steps() {
   )
 }
 
-function Flasher({ cat }: { cat: Catalog }) {
+function Flasher({ cat, pack }: { cat: Catalog; pack: string }) {
   const pets = cat.boards.filter((b) => !b.base)
   const [boardId, setBoardId] = useState(pets[0]?.id ?? '')
   const board = pets.find((b) => b.id === boardId) ?? pets[0]
-  const [pack, setPack] = useState(board?.defaultPack ?? '')
-  useEffect(() => { if (board && !board.packs.includes(pack)) setPack(board.defaultPack) }, [board, pack])
-  const packs = useMemo(() => cat.packs.filter((p) => board?.packs.includes(p.id)), [cat, board])
   if (!board) return null
+  const p = cat.packs.find((x) => x.id === pack)
+  // some boards ship one firmware only (lcd28: siamese); it still carries every character
+  const starts = board.packs.includes(pack) ? pack : board.defaultPack
+  const startsName = cat.packs.find((x) => x.id === starts)?.name ?? starts
 
   return (
-    <section id="flash" className="mt-16 scroll-mt-6">
-      <SectionTitle icon={Usb} title="Install over USB" sub="Bootloader, partition table, the pet firmware and the 3 MB character storage." />
+    <div id="flash" className="mt-10 scroll-mt-6 border-t border-ink-800 pt-8">
+      <h3 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
+        <Usb className="size-5 text-amber" />Install over USB
+      </h3>
+      <p className="mt-1.5 mb-6 max-w-prose text-ink-400">Bootloader, partition table, the pet firmware and the 3 MB character storage.</p>
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-6">
           <div>
@@ -146,29 +157,23 @@ function Flasher({ cat }: { cat: Catalog }) {
           </div>
           <div>
             <Label>Character it starts with <span className="font-normal text-ink-400">· all {cat.packs.length} are installed, switch any time over Bluetooth</span></Label>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-              {packs.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setPack(p.id)}
-                  aria-pressed={p.id === pack}
-                  className={`group rounded-xl border p-2 text-left transition focus-visible:outline-2 focus-visible:outline-amber ${p.id === pack ? 'border-amber bg-ink-800' : 'border-ink-800 bg-ink-900 hover:border-ink-700'}`}
-                >
-                  <div className="aspect-square overflow-hidden rounded-lg bg-black">
-                    <img src={p.image} alt="" loading="lazy" className="pixel size-full object-contain" />
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between text-sm">
-                    <span className="truncate">{p.name}</span>
-                    {p.id === pack && <Check className="size-4 text-amber" />}
-                  </div>
-                </button>
-              ))}
-            </div>
+            <a href="#preview" onClick={(e) => { e.preventDefault(); document.getElementById('preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+              className="flex items-center gap-3 rounded-xl border border-amber bg-ink-800 p-2 pr-4 hover:bg-ink-800/70">
+              <span className="size-14 shrink-0 overflow-hidden rounded-lg bg-black">
+                <img src={cat.packs.find((x) => x.id === starts)?.image ?? p?.image} alt="" className="pixel size-full object-contain" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{startsName}</span>
+                <span className="block text-sm text-ink-400">
+                  {starts === pack ? 'the character in the preview · pick another above' : `${board.name} firmware starts with ${startsName}; switch to ${p?.name ?? pack} over Bluetooth after`}
+                </span>
+              </span>
+            </a>
           </div>
         </div>
-        <InstallPanel key={`${board.id}-${pack}`} board={board} pack={pack} label={`${board.name} · ${pack}`} />
+        <InstallPanel key={`${board.id}-${starts}`} board={board} pack={starts} label={`${board.name} · ${starts}`} />
       </div>
-    </section>
+    </div>
   )
 }
 

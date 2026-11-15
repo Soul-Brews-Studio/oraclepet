@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Hand, Play, Square, Eye } from 'lucide-react'
+import { Download, Hand, Play, Square, Eye, Usb } from 'lucide-react'
 import { PetSim, STATE_GIF, CANVAS_W, CANVAS_H, type SimView } from '../lib/sim'
 import type { Catalog } from '../lib/catalog'
 
@@ -7,9 +7,8 @@ const STATES = ['idle', 'busy', 'attention', 'sleep'] as const
 
 /** The pet's 320×480 screen in the browser: a character's animations, and the example .wasm apps
  * running on the same API the firmware gives them (lab/pet-sdk/pet.h). Click the screen to tap. */
-export function Preview({ cat, pick }: { cat: Catalog; pick?: { id: string; n: number } | null }) {
+export function Preview({ cat, pack, onPack, onInstall }: { cat: Catalog; pack: string; onPack: (p: string) => void; onInstall?: () => void }) {
   const ids = cat.packs.map((p) => p.id)
-  const [pack, setPack] = useState(ids.includes('siamese') ? 'siamese' : ids[0])
   const [app, setApp] = useState('')
   const [view, setView] = useState<SimView | null>(null)
   const [manualState, setManualState] = useState(0)
@@ -18,8 +17,12 @@ export function Preview({ cat, pick }: { cat: Catalog; pick?: { id: string; n: n
   const cv = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => () => sim.current?.stop(), [])
-  // a character clicked in the hero
-  useEffect(() => { if (pick && ids.includes(pick.id)) choosePack(pick.id) }, [pick?.n]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the page's character changed (hero, this grid): a running app's screen follows it
+  useEffect(() => {
+    if (sim.current && sim.current.view.pack !== pack) { sim.current.view = { ...sim.current.view, pack }; setView(sim.current.view) }
+  }, [pack])
+  // an app switched the character itself (pet_show_pack): the page follows it
+  useEffect(() => { if (view?.pack && view.pack !== pack) onPack(view.pack) }, [view?.pack]) // eslint-disable-line react-hooks/exhaustive-deps
   // heart / state changes are time based: redraw a few times a second while something runs
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(t) }, [])
   useEffect(() => {
@@ -38,8 +41,7 @@ export function Preview({ cat, pick }: { cat: Catalog; pick?: { id: string; n: n
   }
 
   function choosePack(p: string) {
-    setPack(p)
-    if (sim.current && view) { sim.current.view = { ...view, pack: p }; setView(sim.current.view) }
+    onPack(p)
   }
 
   function tap(e: React.MouseEvent<HTMLDivElement>) {
@@ -121,6 +123,12 @@ export function Preview({ cat, pick }: { cat: Catalog; pick?: { id: string; n: n
           </span>
         </div>
         <p className="mt-2 flex items-center justify-center gap-1.5 text-xs text-ink-400"><Hand className="size-3.5" />click the screen to tap</p>
+        {onInstall && (
+          <button type="button" onClick={onInstall}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-amber px-4 py-2.5 font-medium text-ink-950 hover:bg-amber/90">
+            <Usb className="size-4" />Install {cat.packs.find((p) => p.id === shown.pack)?.name ?? shown.pack} over USB
+          </button>
+        )}
       </div>
     </div>
   )
