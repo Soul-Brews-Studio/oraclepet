@@ -11,19 +11,26 @@ const REPO = 'https://github.com/Soul-Brews-Studio/oraclepet'
 export default function App() {
   const [cat, setCat] = useState<Catalog | null>(null)
   const [err, setErr] = useState('')
+  const [pick, setPick] = useState<{ id: string; n: number } | null>(null)
   useEffect(() => { loadCatalog().then(setCat, (e) => setErr(String(e))) }, [])
+  // a character in the hero: show it in the Preview and scroll there
+  function showInPreview(id: string) {
+    setPick((p) => ({ id, n: (p?.n ?? 0) + 1 }))
+    const el = document.getElementById('pet-screen') ?? document.getElementById('preview')
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   return (
     <div className="min-h-dvh">
       <Header />
       <main className="mx-auto max-w-5xl px-5 pb-24">
-        <Hero packs={cat?.packs ?? []} />
+        <Hero packs={cat?.packs ?? []} onPick={showInPreview} />
         <Steps />
         {err && <Note tone="bad">Could not load the firmware list: {err}</Note>}
         {cat && (
           <section id="preview" className="mt-16 scroll-mt-6">
             <SectionTitle icon={PreviewIcon} title="Preview" sub="The pet's screen in your browser: every character's animations, and the example WebAssembly apps running on the same API the firmware gives them." />
-            <Preview cat={cat} />
+            <Preview cat={cat} pick={pick} />
           </section>
         )}
         {cat && <Flasher cat={cat} />}
@@ -55,7 +62,7 @@ function Header() {
   )
 }
 
-function Hero({ packs }: { packs: Pack[] }) {
+function Hero({ packs, onPick }: { packs: Pack[]; onPick: (id: string) => void }) {
   return (
     <section className="grid items-center gap-10 py-14 md:grid-cols-[1.1fr_1fr]">
       <div>
@@ -78,9 +85,10 @@ function Hero({ packs }: { packs: Pack[] }) {
       </div>
       <div className="grid grid-cols-4 gap-2 rounded-2xl border border-ink-800 bg-ink-900 p-3 sm:grid-cols-5">
         {packs.slice(0, 15).map((p) => (
-          <figure key={p.id} className="aspect-square overflow-hidden rounded-lg bg-black" title={p.name}>
+          <button key={p.id} type="button" onClick={() => onPick(p.id)} title={`${p.name}: show in the preview`}
+            className="aspect-square overflow-hidden rounded-lg border border-transparent bg-black transition-colors hover:border-amber focus-visible:border-amber">
             <img src={p.image} alt={p.name} loading="lazy" className="pixel size-full object-contain" />
-          </figure>
+          </button>
         ))}
         {packs.length === 0 && Array.from({ length: 10 }, (_, i) => <div key={i} className="aspect-square animate-pulse rounded-lg bg-ink-800" />)}
       </div>

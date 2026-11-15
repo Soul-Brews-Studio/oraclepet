@@ -7,7 +7,7 @@ const STATES = ['idle', 'busy', 'attention', 'sleep'] as const
 
 /** The pet's 320×480 screen in the browser: a character's animations, and the example .wasm apps
  * running on the same API the firmware gives them (lab/pet-sdk/pet.h). Click the screen to tap. */
-export function Preview({ cat }: { cat: Catalog }) {
+export function Preview({ cat, pick }: { cat: Catalog; pick?: { id: string; n: number } | null }) {
   const ids = cat.packs.map((p) => p.id)
   const [pack, setPack] = useState(ids.includes('siamese') ? 'siamese' : ids[0])
   const [app, setApp] = useState('')
@@ -18,6 +18,8 @@ export function Preview({ cat }: { cat: Catalog }) {
   const cv = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => () => sim.current?.stop(), [])
+  // a character clicked in the hero
+  useEffect(() => { if (pick && ids.includes(pick.id)) choosePack(pick.id) }, [pick?.n]) // eslint-disable-line react-hooks/exhaustive-deps
   // heart / state changes are time based: redraw a few times a second while something runs
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 250); return () => clearInterval(t) }, [])
   useEffect(() => {
@@ -104,7 +106,7 @@ export function Preview({ cat }: { cat: Catalog }) {
       </div>
 
       <div className="mx-auto">
-        <div onClick={tap} role="button" aria-label="The pet screen: click to tap"
+        <div id="pet-screen" onClick={tap} role="button" aria-label="The pet screen: click to tap"
           className="relative box-content h-[480px] w-[320px] cursor-pointer select-none overflow-hidden rounded-[22px] border-[10px] border-ink-800 bg-black shadow-2xl">
           {shown.canvas
             ? <canvas ref={cv} width={CANVAS_W} height={CANVAS_H} className="absolute inset-x-0 top-0" />
