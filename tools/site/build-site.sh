@@ -7,6 +7,7 @@
 #   /usb/<board>/  one-button USB flasher for sc01 / lcd28
 #   /ble/        Web Bluetooth tool: OTA firmware, packs, apps (lab/oraclepet-lib/web)
 #   /draw/       an AI (local MCP server) or a person draws a character, sent over Bluetooth (lab/pet-draw)
+#   /studio/     Pet Studio's designer with no server; pairs a machine over WebRTC (lab/pet-studio, lab/pet-peer)
 #   /firmware/   every .bin + SHA256SUMS, for BLE OTA and esptool users
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -102,5 +103,9 @@ cp "$ROOT"/lab/oraclepet-lib/web/{index.html,oraclepet.js,simpet.js} "$SITE/ble/
 mkdir -p "$SITE/draw"
 cp "$ROOT"/lab/pet-draw/web/{index.html,draw.js,gif.js} "$SITE/draw/"
 cp "$ROOT"/lab/pet-draw/mcp.mjs "$SITE/draw/pet-draw-mcp.mjs"
+( cd "$ROOT/lab/pet-studio" && npm ci --no-audit --no-fund && STATIC=1 npx vite build )
+rm -rf "$SITE/studio" && cp -R "$ROOT/lab/pet-studio/dist-static" "$SITE/studio"
+mv "$SITE/studio/v2.html" "$SITE/studio/index.html"
+cp "$ROOT"/lab/pet-peer/{pet-peer.mjs,peer.js} "$SITE/studio/"
 
 find "$SITE" -type f | sed "s#^$SITE##" | sort

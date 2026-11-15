@@ -47,6 +47,9 @@ const PROPS = ["name", "erase"];
 let nameSeq = 0;
 const label = (o: FabricObject) => (o as any).name ?? o.type;
 
+/** A cache-busting query, except on blob: and data: URLs (the static build), which take none. */
+const bust = (u: string, v: unknown) => (/^(blob|data):/.test(u) ? u : `${u}?t=${v}`);
+
 async function poll(id: string, onJob: (j: Job) => void): Promise<Job> {
   for (;;) {
     const j = await api.job(id);
@@ -646,7 +649,7 @@ export function Designer() {
     ? { text: "Draw or drop the character into idle, frame 1: every state starts from it", act: null as null | (() => void) }
     : !pack || pack.name !== name ? { text: `Make the sprite: seven states from what is on the sheet`, act: create }
     : connected ? { text: `Put ${pack.name} on ${connected.name}`, act: send }
-    : { text: "Turn a pet on: OraclePet links it, then send", act: null };
+    : { text: import.meta.env.VITE_STATIC === "1" ? "Connect a pet (top bar), then send" : "Turn a pet on: OraclePet links it, then send", act: null };
 
   return (
     <div className="flex min-h-screen flex-col gap-3 p-3 lg:h-screen">
@@ -672,7 +675,9 @@ export function Designer() {
             <span className={`size-2 rounded-full ${connected ? "bg-cyan" : "bg-liner-ink"}`} />
             {connected ? connected.name : "no pet linked"}
           </span>
-          <a href="/" className="label underline decoration-dashed underline-offset-4 hover:text-ink">studio v1</a>
+          {import.meta.env.VITE_STATIC === "1"
+            ? <a href="../" className="label underline decoration-dashed underline-offset-4 hover:text-ink">oraclepet</a>
+            : <a href="/" className="label underline decoration-dashed underline-offset-4 hover:text-ink">studio v1</a>}
         </div>
       </header>
 
@@ -756,7 +761,7 @@ export function Designer() {
               <span className="label">96 × 100 · {showState ? `sprite: ${showState}` : `${state} ${fi + 1}`}</span>
             </div>
             <div className="relative mx-auto grid h-[208px] w-[200px] place-items-center rounded-[10px] bg-ink ring-4 ring-[#2a2d33]">
-              {showUrl ? <img key={showUrl} src={`${showUrl}?t=${pack.bytes}`} alt={`${showState} state of ${pack.name}`} className="h-[200px] w-[192px] object-contain [image-rendering:pixelated]" />
+              {showUrl ? <img key={showUrl} src={bust(showUrl, pack.bytes)} alt={`${showState} state of ${pack.name}`} className="h-[200px] w-[192px] object-contain [image-rendering:pixelated]" />
                 : petPng ? <img src={petPng} alt={`${state} frame ${fi + 1} as the pet shows it`} className="h-[200px] w-[192px] object-contain [image-rendering:pixelated]" style={{ filter: "contrast(1.02)" }} />
                 : <span className="label !text-[#8b93a3]">empty frame</span>}
               {showState && <span className="absolute bottom-1.5 left-2 text-[11px] font-bold lowercase text-white/80" style={{ fontStretch: "120%" }}>{showState}</span>}
@@ -844,7 +849,7 @@ export function Designer() {
                 <div className="mt-3 grid grid-cols-4 gap-2">
                   {pack.files.filter((f: any) => f.name.endsWith(".gif")).map((f: any) => (
                     <figure key={f.name} className="m-0 text-center">
-                      <img src={`${f.url}?t=${pack.bytes}`} alt={`${f.name.replace(".gif", "")} state`} className="aspect-[96/100] w-full rounded-md bg-ink [image-rendering:pixelated]" />
+                      <img src={bust(f.url, pack.bytes)} alt={`${f.name.replace(".gif", "")} state`} className="aspect-[96/100] w-full rounded-md bg-ink [image-rendering:pixelated]" />
                       <figcaption className="mt-0.5 text-[10.5px] text-ink-3">{f.name.replace(".gif", "")}</figcaption>
                     </figure>
                   ))}

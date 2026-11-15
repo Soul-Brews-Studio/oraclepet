@@ -15,6 +15,9 @@ LE, and takes new firmware, animation packs and WebAssembly apps over the air.
 - **OTA base** (any firmware): a small firmware for any ESP32-S3 with 8 MB of flash. It only
   waits for an app image over Bluetooth, installs it and boots it, and stays in its own factory
   partition so you can always go back to it. See [`lab/ota-base`](lab/ota-base).
+- **Pet Studio** (a new character, pure front end): draw frame by frame at
+  [`/studio/`](https://soul-brews-studio.github.io/oraclepet/studio/), send over Bluetooth; pair a computer
+  over WebRTC to build apps and firmware there. See [`lab/pet-peer`](lab/pet-peer).
 - **AI draw** (a new character): your AI agent draws on a 96×100 canvas through a one-file MCP
   server on your computer; the drawing goes to the pet as seven animations. See
   [`lab/pet-draw`](lab/pet-draw).
@@ -45,7 +48,9 @@ The pet itself:
 | [`lab/desk-pet-mac`](lab/desk-pet-mac) | OraclePet for macOS (Swift, CoreBluetooth): links the pets, shows agent state, sends OTA updates |
 | [`lab/pet-sdk`](lab/pet-sdk) | build pet apps in C, Zig, Rust or AssemblyScript to `.wasm` |
 | [`lab/pet-draw`](lab/pet-draw) | let an AI draw a character: a canvas page plus a zero-dependency MCP server, sent over Bluetooth |
-| [`lab/pet-studio`](lab/pet-studio) | a local web page and MCP server over the tools above |
+| [`lab/pet-studio`](lab/pet-studio) | the designer: draw a character frame by frame and send it; runs on GitHub Pages with no server, or locally with its server and MCP |
+| [`lab/pet-peer`](lab/pet-peer) | pair a computer with the Studio page over WebRTC: it builds apps and firmware, and an AI agent on it draws (MCP) |
+| [`tools/signal`](tools/signal) | the pairing relay: a Cloudflare Worker that only passes encrypted offers |
 | [`lab/ota-base`](lab/ota-base) | the OTA base: takes any ESP32-S3 app image over BLE |
 | [`site`](site) | the web flasher (React, Tailwind, esptool-js), deployed to GitHub Pages |
 | [`lab/buddy/characters`](lab/buddy/characters) | the character packs (each has its own license note) |

@@ -2,6 +2,10 @@ import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "./v2.css";
 import { Designer } from "./Designer";
+import { STATIC, installShim } from "../static/backend";
+import { StaticBar } from "../static/StaticBar";
+
+if (STATIC) installShim();
 
 /** A render error shows itself instead of blanking the page (and the agent's calls get it too). */
 class Boundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -14,4 +18,4 @@ class Boundary extends Component<{ children: ReactNode }, { error: Error | null 
   }
 }
 
-createRoot(document.getElementById("root")!).render(<Boundary><Designer /></Boundary>);
+createRoot(document.getElementById("root")!).render(<Boundary>{STATIC && <StaticBar />}<Designer /></Boundary>);

@@ -3,6 +3,7 @@
 // blocks, its simulator state and a picture of the simulator screen.
 import { useEffect, useState } from "react";
 import { currentView, simulate, snapshot, tap, simApp } from "./simstore";
+import { STATIC, setActionRunner } from "./static/backend";
 
 export const ORIGIN = Math.random().toString(36).slice(2);
 export type LiveEvent = { type: string; origin?: string; [k: string]: any };
@@ -13,6 +14,15 @@ const status = new Set<(c: boolean) => void>();
 /** Actions this page runs for the agent (studio v2): POST /api/live/call reaches them. */
 let actions: Record<string, (args: any) => Promise<unknown> | unknown> = {};
 export function setActions(a: typeof actions) { actions = a; }
+/** Run one action the way an agent's call does (the static build's peer link uses it). */
+export async function runAction(action: string, args: any) {
+  const f = actions[action];
+  if (!f) throw new Error(`no action ${action}; the page knows ${Object.keys(actions).join(", ")}`);
+  (window as any).__agentCall = `peer-${Date.now()}`;
+  (window as any).__agentName = "agent";
+  try { return await f(args ?? {}); } finally { (window as any).__agentCall = null; }
+}
+setActionRunner(runAction);
 let helloCanvas: string | null = null;
 /** Say which canvas this page shows; repeated on every reconnect, so a server restart does not
  * leave the page unreachable for agents' calls. */
@@ -32,6 +42,7 @@ export const sendBlocks = (name: string, blocks: object) => post("/api/live/bloc
 export const sendCode = (name: string, lang: string, source: string) => post("/api/live/code", { name, lang, source });
 
 export function startLive() {
+  if (STATIC) return; // no server: agents come over the peer link (static/backend.ts)
   // a WebSocket, not SSE: a stream would hold one of the browser's six connections to this host
   const onEvent = (data: string) => {
     const e: LiveEvent = JSON.parse(data);
