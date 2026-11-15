@@ -6,6 +6,7 @@
 #   /usb/        USB flasher for the JC3248 (esp-web-tools), with live pack preview
 #   /usb/<board>/  one-button USB flasher for sc01 / lcd28
 #   /ble/        Web Bluetooth tool: OTA firmware, packs, apps (lab/oraclepet-lib/web)
+#   /draw/       an AI (local MCP server) or a person draws a character, sent over Bluetooth (lab/pet-draw)
 #   /firmware/   every .bin + SHA256SUMS, for BLE OTA and esptool users
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -98,5 +99,8 @@ done
 # Web Bluetooth tool.
 mkdir -p "$SITE/ble"
 cp "$ROOT"/lab/oraclepet-lib/web/{index.html,oraclepet.js,simpet.js} "$SITE/ble/"
+mkdir -p "$SITE/draw"
+cp "$ROOT"/lab/pet-draw/web/{index.html,draw.js,gif.js} "$SITE/draw/"
+cp "$ROOT"/lab/pet-draw/mcp.mjs "$SITE/draw/pet-draw-mcp.mjs"
 
 find "$SITE" -type f | sed "s#^$SITE##" | sort

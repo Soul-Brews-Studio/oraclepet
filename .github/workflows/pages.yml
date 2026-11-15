@@ -97,6 +97,8 @@ jobs:
         env:
           TZ: Asia/Bangkok
         run: cd lab/oraclepet-lib/web && node --test
+      - name: Draw tests (GIF encoder, MCP server)
+        run: cd lab/pet-draw && node --test
       - uses: mlugg/setup-zig@v2   # compiles the example pet apps for the preview
         with:
           version: 0.16.0            # the version lab/pet-sdk/build.sh is written for

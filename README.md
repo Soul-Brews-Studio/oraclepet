@@ -15,6 +15,9 @@ LE, and takes new firmware, animation packs and WebAssembly apps over the air.
 - **OTA base** (any firmware): a small firmware for any ESP32-S3 with 8 MB of flash. It only
   waits for an app image over Bluetooth, installs it and boots it, and stays in its own factory
   partition so you can always go back to it. See [`lab/ota-base`](lab/ota-base).
+- **AI draw** (a new character): your AI agent draws on a 96×100 canvas through a one-file MCP
+  server on your computer; the drawing goes to the pet as seven animations. See
+  [`lab/pet-draw`](lab/pet-draw).
 
 USB install uses [esptool-js](https://github.com/espressif/esptool-js): Web Serial on desktop
 Chrome and Edge, WebUSB on Chrome for Android. Bluetooth needs Chrome or Edge on desktop, or
@@ -41,6 +44,7 @@ The pet itself:
 | [`lab/oraclepet-lib`](lab/oraclepet-lib) | the BLE protocol ([`PROTOCOL.md`](lab/oraclepet-lib/PROTOCOL.md)) with matching C, Python and browser libraries, golden test vectors, and the Web Bluetooth page |
 | [`lab/desk-pet-mac`](lab/desk-pet-mac) | OraclePet for macOS (Swift, CoreBluetooth): links the pets, shows agent state, sends OTA updates |
 | [`lab/pet-sdk`](lab/pet-sdk) | build pet apps in C, Zig, Rust or AssemblyScript to `.wasm` |
+| [`lab/pet-draw`](lab/pet-draw) | let an AI draw a character: a canvas page plus a zero-dependency MCP server, sent over Bluetooth |
 | [`lab/pet-studio`](lab/pet-studio) | a local web page and MCP server over the tools above |
 | [`lab/ota-base`](lab/ota-base) | the OTA base: takes any ESP32-S3 app image over BLE |
 | [`site`](site) | the web flasher (React, Tailwind, esptool-js), deployed to GitHub Pages |

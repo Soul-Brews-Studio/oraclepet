@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OraclePet · Draw</title>
+<meta name="description" content="Let an AI draw your desk pet: a 96×100 canvas an AI draws on through a local MCP server, made into seven animations and sent over Bluetooth.">
+<link rel="icon" href="../packs/bufo.gif">
+<style>
+  :root { --bg:#12100c; --card:#1b1812; --raise:#26211a; --line:#3a3226; --ink:#f4eee4; --ink2:#d9cfbf; --dim:#a89a84; --accent:#f0a830; --good:#7fd18b; --bad:#f07a6e; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  ::selection { background: var(--accent); color: #12100c; }
+  a { color: var(--accent); }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  .brand { display: flex; align-items: center; gap: 8px; color: var(--ink); text-decoration: none; }
+  .brand img { width: 28px; height: 28px; image-rendering: pixelated; }
+  .brand span { color: var(--dim); font-weight: 400; }
+  header nav { margin-left: auto; display: flex; gap: 16px; font-size: 14px; }
+  header nav a { color: var(--dim); text-decoration: none; }
+  header nav a:hover { color: var(--ink); }
+  main { max-width: 1120px; margin: 0 auto; padding: 24px 20px 64px; display: grid; gap: 20px; grid-template-columns: auto 1fr; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  h2 { margin: 0 0 10px; font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  h2 svg { width: 18px; height: 18px; color: var(--accent); }
+  p { margin: 0 0 10px; color: var(--ink2); }
+  .dim { color: var(--dim); font-size: 13px; }
+  #art { display: block; width: 384px; height: 400px; max-width: 100%; aspect-ratio: 96 / 100; height: auto; image-rendering: pixelated; background: #000; border: 10px solid var(--raise); border-radius: 18px; cursor: crosshair; touch-action: none; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  #states { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 14px; max-width: 404px; }
+  #states figure { margin: 0; text-align: center; font-size: 11px; color: var(--dim); }
+  #states img { width: 100%; aspect-ratio: 96 / 100; image-rendering: pixelated; background: #000; border: 1px solid var(--line); border-radius: 6px; display: block; }
+  button { font: inherit; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 9px; padding: 7px 13px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #12100c; border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=text] { font: inherit; color: var(--ink); background: #0d0c09; border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; width: 150px; }
+  input[type=color] { width: 36px; height: 34px; padding: 2px; background: var(--raise); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  select { font: inherit; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; }
+  label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 14px; cursor: pointer; }
+  .pill { display: inline-block; font-size: 13px; color: var(--dim); background: var(--raise); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+  .pill.on { color: var(--good); border-color: #3d5a3f; }
+  .stack { display: grid; gap: 20px; }
+  pre { margin: 8px 0 0; padding: 10px 12px; background: #0d0c09; border: 1px solid var(--line); border-radius: 9px; font: 12.5px/1.5 ui-monospace, monospace; color: var(--ink2); white-space: pre-wrap; word-break: break-all; }
+  code { font: 13px ui-monospace, monospace; color: var(--ink2); }
+  ol { margin: 0; padding-left: 20px; color: var(--ink2); }
+  ol li { margin: 4px 0; }
+  progress { width: 100%; height: 4px; appearance: none; border: 0; background: var(--raise); border-radius: 4px; margin-top: 10px; }
+  progress::-webkit-progress-bar { background: var(--raise); border-radius: 4px; }
+  progress::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+  #log { max-height: 180px; overflow: auto; font: 12px/1.6 ui-monospace, monospace; color: var(--dim); }
+  #log .ok { color: var(--good); } #log .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a class="brand" href="../"><img src="../packs/bufo.gif" alt="">OraclePet <span>· Draw</span></a></h1>
+  <nav><a href="../#preview">Preview</a><a href="../ble/">Bluetooth tool</a></nav>
+</header>
+<main>
+  <section class="card">
+    <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></svg>Canvas <span class="dim">· 96 × 100, what the pet shows 3× bigger</span></h2>
+    <canvas id="art" width="384" height="400" aria-label="The drawing: click or drag to paint"></canvas>
+    <div class="tools">
+      <input type="color" id="color" value="#f0a830" aria-label="Colour">
+      <select id="pen" aria-label="Pen size"><option value="1">1 px</option><option value="2">2 px</option><option value="4">4 px</option></select>
+      <label><input type="checkbox" id="erase"> Erase</label>
+      <button id="undo">Undo</button>
+      <button id="clear">Clear</button>
+    </div>
+    <div id="states">
+      <figure><img data-state="idle" alt=""><figcaption>idle</figcaption></figure>
+      <figure><img data-state="busy" alt=""><figcaption>busy</figcaption></figure>
+      <figure><img data-state="attention" alt=""><figcaption>attention</figcaption></figure>
+      <figure><img data-state="sleep" alt=""><figcaption>sleep</figcaption></figure>
+      <figure><img data-state="celebrate" alt=""><figcaption>celebrate</figcaption></figure>
+      <figure><img data-state="dizzy" alt=""><figcaption>dizzy</figcaption></figure>
+      <figure><img data-state="heart" alt=""><figcaption>heart</figcaption></figure>
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="card">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>Let an AI draw</h2>
+      <p>Your AI agent draws here through a small MCP server on your own computer. The page and the server talk over <code>127.0.0.1</code>; nothing goes through a cloud.</p>
+      <ol>
+        <li>Add the server once (Node 18+, no installs):<pre id="mcpcmd"></pre></li>
+        <li>Press <b>Connect AI</b> (Chrome may ask to reach apps on this device: allow it).</li>
+        <li>Ask your agent: <i>“draw a small orange fox on the pet and send it”</i>.</li>
+      </ol>
+      <div class="tools"><button id="aiconnect" class="primary">Connect AI</button><span id="aistate" class="pill">Not connected</span></div>
+    </section>
+
+    <section class="card">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>Send to the pet</h2>
+      <p>The drawing becomes a pack of seven animations. It installs next to the other characters and shows at once.</p>
+      <div class="tools">
+        <button id="connect">Connect pet</button><button id="sim" title="An in-memory pet (simpet.js): try it without one">Simulated pet</button><span id="petstate" class="pill">Not connected</span>
+      </div>
+      <div class="tools">
+        <label>Pack name <input type="text" id="name" value="drawn" maxlength="23" pattern="[a-z0-9_\-]{1,23}"></label>
+        <button id="send" class="primary" disabled>Send to pet</button>
+        <button id="download">Download GIFs</button>
+      </div>
+      <progress id="bar" max="100" value="0"></progress>
+    </section>
+
+    <section class="card">
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5M15 8h-5M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>Log</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+</main>
+<script type="module" src="draw.js"></script>
+</body>
+</html>

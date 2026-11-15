@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Bluetooth, ChevronRight, Cpu, Download, FileCode2, FolderGit2, RotateCcw, ShieldAlert, TriangleAlert, Usb, Zap,
+  Bluetooth, Brush, ChevronRight, Cpu, Download, FileCode2, FolderGit2, RotateCcw, ShieldAlert, TriangleAlert, Usb, Zap,
 } from 'lucide-react'
 import { loadCatalog, partsFor, kb, hex, type Board, type Catalog, type Pack } from './lib/catalog'
 import { flash, usbApi, type Progress } from './lib/flash'
@@ -61,6 +61,7 @@ function Header() {
           <a href="#preview" className="hidden hover:text-ink-50 sm:inline">Preview</a>
           <a href="#flash" className="hidden hover:text-ink-50 sm:inline">USB install</a>
           <a href="ble/" className="flex items-center gap-1.5 hover:text-ink-50" aria-label="Bluetooth tool"><Bluetooth className="size-4 sm:hidden" /><span className="hidden sm:inline">Bluetooth tool</span></a>
+          <a href="draw/" className="hidden hover:text-ink-50 sm:inline">AI draw</a>
           <a href="firmware/" className="hidden hover:text-ink-50 sm:inline">Firmware</a>
           <a href={REPO} className="flex items-center gap-1.5 hover:text-ink-50" aria-label="Source on GitHub"><FolderGit2 className="size-4" /><span className="hidden sm:inline">Source</span></a>
         </nav>
@@ -300,8 +301,9 @@ function BleSection() {
   return (
     <section className="mt-16">
       <SectionTitle icon={Bluetooth} title="Update over Bluetooth" sub="Connect to a pet and send firmware, a character pack or a .wasm app. Chrome or Edge on desktop, Chrome on Android." />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <LinkCard href="ble/" icon={Bluetooth} title="Bluetooth tool" body="OTA firmware, characters, apps, speaker and mic test" />
+        <LinkCard href="draw/" icon={Brush} title="Let an AI draw it" body="Your agent draws a character through a local MCP server; it goes to the pet as seven animations" />
         <LinkCard href="firmware/" icon={Download} title="Firmware files" body="App images for OTA, full images for esptool, SHA256SUMS" />
         <LinkCard href="usb/" icon={Usb} title="Classic USB flasher" body="The ESP Web Tools page, with a live character preview" />
       </div>
