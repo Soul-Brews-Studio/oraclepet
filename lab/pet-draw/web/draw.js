@@ -56,6 +56,10 @@ export async function draw({ clear, ops = [] } = {}) {
   const notes = [];
   if (clear) { ctx.fillStyle = clear === true ? '#000' : clear; ctx.fillRect(0, 0, W, H); }
   for (const [n, op] of ops.entries()) {
+    const ext = extent(op);
+    if (ext && (ext[0] < 0 || ext[1] < 0 || ext[2] > W || ext[3] > H)) {
+      notes.push(`op ${n} (${op.type}) covers x ${Math.round(ext[0])}..${Math.round(ext[2])}, y ${Math.round(ext[1])}..${Math.round(ext[3])}: past the ${W}x${H} canvas, that part is cut off`);
+    }
     ctx.save();
     ctx.lineWidth = op.width ?? 1;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -107,6 +111,32 @@ export async function draw({ clear, ops = [] } = {}) {
   }
   paint();
   return notes;
+}
+
+/** Where an op draws: [x0, y0, x1, y1], or null when unknown (svg, fill, text). */
+function extent(op) {
+  const w = (op.width ?? 1) / 2;
+  switch (op.type) {
+    case 'rect': return [op.x, op.y, op.x + op.w, op.y + op.h];
+    case 'ellipse': case 'circle': { const rx = op.rx ?? op.r, ry = op.ry ?? op.r; return [op.cx - rx - w, op.cy - ry - w, op.cx + rx + w, op.cy + ry + w]; }
+    case 'line': return [Math.min(op.x1, op.x2) - w, Math.min(op.y1, op.y2) - w, Math.max(op.x1, op.x2) + w, Math.max(op.y1, op.y2) + w];
+    case 'polygon': case 'polyline': { const p = points(op.points); if (!p.length) return null; const xs = p.map((q) => q[0]), ys = p.map((q) => q[1]); return [Math.min(...xs) - w, Math.min(...ys) - w, Math.max(...xs) + w, Math.max(...ys) + w]; }
+    case 'pixels': { const s = op.scale ?? 1, rows = op.rows ?? []; const cols = Math.max(0, ...rows.map((r) => [...r].length)); return [op.x, op.y, op.x + cols * s, op.y + rows.length * s]; }
+    default: return null;
+  }
+}
+
+/** The box around everything that is not the black background, and which edges it touches. */
+export function bounds() {
+  const d = ctx.getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    if (d[i] + d[i + 1] + d[i + 2] > 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return { empty: true };
+  const edges = [x0 === 0 && 'left', y0 === 0 && 'top', x1 === W - 1 && 'right', y1 === H - 1 && 'bottom'].filter(Boolean);
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, centre: [Math.round((x0 + x1) / 2), Math.round((y0 + y1) / 2)], edges };
 }
 
 export function undo() {
@@ -262,8 +292,8 @@ async function reply(id, body) {
 }
 const handlers = {
   status: () => ({ size: [W, H], pet: pet?.connected ? { name: pet.name, info: pet.info ?? null } : null, packName, page: location.href }),
-  draw: async (a) => ({ notes: await draw(a) }),
-  undo: () => ({ undone: undo() }),
+  draw: async (a) => ({ notes: await draw(a), bounds: bounds() }),
+  undo: () => ({ undone: undo(), bounds: bounds() }),
   view: (a) => {
     const s = Math.max(1, Math.min(8, a?.scale ?? 4));
     const c = document.createElement('canvas');
@@ -289,7 +319,11 @@ function connectAI() {
   aiStatus(false, `Looking for the MCP server on 127.0.0.1:${port}…`);
   es = new EventSource(`http://127.0.0.1:${port}/events`);
   es.onopen = () => { aiStatus(true, `AI connected (127.0.0.1:${port})`); log('AI connected', 'ok'); };
-  es.onerror = () => aiStatus(false, `Waiting for the MCP server on 127.0.0.1:${port}…`);
+  es.onerror = () => {
+    aiStatus(false, `Waiting for the MCP server on 127.0.0.1:${port}…`);
+    // a blocked request (local network permission, CORS) closes an EventSource for good: open a new one
+    if (es?.readyState === EventSource.CLOSED) { es = null; setTimeout(() => { if (!es) connectAI(); }, 3000); }
+  };
   es.onmessage = async (ev) => {
     const { id, tool, args } = JSON.parse(ev.data);
     $('aistate').textContent = `AI: ${tool}`;

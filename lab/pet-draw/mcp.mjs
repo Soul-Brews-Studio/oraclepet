@@ -128,7 +128,8 @@ const TOOLS = [
     name: 'pet_draw',
     description:
       'Draw on the pet canvas: 96 x 100 pixels, origin top left, black background; the pet shows it 3x bigger. ' +
-      'The drawing is one character pose: keep the figure centred, about 60-80 px tall, bright colours with a light outline (dark colours vanish on black). ' +
+      'The drawing is one character pose: keep the figure centred and inside x 8..88, y 8..96 (about 60-80 px tall), bright colours with a light outline (dark colours vanish on black). ' +
+      'Mind the size of pixel art: a row of N characters at scale s is N*s px wide (40 characters at scale 2 = 80 px). Every reply says where the drawing sits and warns when it touches an edge. ' +
       'Ops run in order. Types: rect {x,y,w,h,fill?,stroke?,width?}; ellipse/circle {cx,cy,rx,ry | r, rotate?, fill?, stroke?, width?}; ' +
       'line {x1,y1,x2,y2,stroke,width?}; polygon/polyline {points:[[x,y],...], fill?, stroke?, width?}; text {x,y,text,size?,fill?,bold?,align?}; ' +
       'pixels {x,y,rows:["..##..",...], palette:{"#":"#fff","o":"#f0a830"}, scale?} for exact pixel art ("." and " " are transparent); ' +
@@ -177,6 +178,13 @@ const TOOLS = [
   },
 ];
 
+function describe(b) {
+  if (!b) return '';
+  if (b.empty) return 'The canvas is empty (all black).';
+  const where = `The drawing covers x ${b.x}..${b.x + b.w - 1}, y ${b.y}..${b.y + b.h - 1} (${b.w}x${b.h} px, centre ${b.centre.join(',')}) of the 96x100 canvas.`;
+  return b.edges.length ? `${where} WARNING: it touches the ${b.edges.join(', ')} edge, so it is probably cut off: make it smaller or move it in.` : where;
+}
+
 const text = (t) => ({ content: [{ type: 'text', text: typeof t === 'string' ? t : JSON.stringify(t, null, 2) }] });
 
 async function runTool(name, args) {
@@ -184,13 +192,13 @@ async function runTool(name, args) {
     case 'pet_draw_status': return text(await call('status', {}));
     case 'pet_draw': {
       const r = await call('draw', args);
-      return text(r.notes?.length ? `Drawn, with notes: ${r.notes.join('; ')}` : `Drawn ${args.ops?.length ?? 0} ops. Check it with pet_draw_view.`);
+      return text([`Drawn ${args.ops?.length ?? 0} ops.`, ...(r.notes ?? []), describe(r.bounds), 'Check it with pet_draw_view.'].filter(Boolean).join('\n'));
     }
     case 'pet_draw_view': {
       const r = await call('view', args);
       return { content: [{ type: 'image', data: r.png, mimeType: 'image/png' }] };
     }
-    case 'pet_draw_undo': return text((await call('undo', {})).undone ? 'Undone.' : 'Nothing to undo.');
+    case 'pet_draw_undo': { const r = await call('undo', {}); return text(`${r.undone ? 'Undone.' : 'Nothing to undo.'}\n${describe(r.bounds)}`); }
     case 'pet_draw_send': {
       const r = await call('send', args, 240000);
       return text(`Sent pack "${r.name}" (${(r.bytes / 1024).toFixed(1)} KB: ${r.files.join(', ')}). The pet shows it now.`);
