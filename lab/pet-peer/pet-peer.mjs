@@ -11,7 +11,7 @@
 // ~/.cache/oraclepet-peer unless it resolves already. Builds need this repo's lab/ (PET_LAB or --lab):
 // zig for apps, ESP-IDF v6 (IDF_PATH, default ~/esp/esp-idf-v6) for firmware.
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -102,7 +102,13 @@ async function buildFirmware({ board = 'jc3248', pack = 'siamese' }, peer) {
   return serial(async () => {
     const proj = join(LAB, 'jc3248-pet-idf');
     const extra = board === 'jc3248' ? '' : ` -DSDKCONFIG=${b.dir}/sdkconfig`;
-    const cmd = `. "${IDF}/export.sh" >/dev/null 2>&1 && idf.py -B ${b.dir} -DPET_BOARD=${board}${extra} -DPET_DEFAULT_PACK=${pack} build`;
+    // export.sh takes the first python3 on PATH and wants the venv ESP-IDF made for that version; when
+    // they differ it prints an error and still returns 0. Point it at an installed v6.0 venv instead.
+    const envs = join(homedir(), '.espressif/python_env');
+    const venv = process.env.IDF_PYTHON_ENV_PATH ?? (existsSync(envs) ? readdirSync(envs).filter((d) => /^idf6\.0_py/.test(d)).sort().map((d) => join(envs, d)).pop() : undefined);
+    const cmd = `${venv ? `export IDF_PYTHON_ENV_PATH="${venv}"; export PATH="${venv}/bin:$PATH"; ` : ''}. "${IDF}/export.sh" > /tmp/pet-peer-idf-export.log 2>&1; ` +
+      `command -v idf.py >/dev/null || { echo "ESP-IDF did not load:"; tail -5 /tmp/pet-peer-idf-export.log; exit 3; }; ` +
+      `idf.py -B ${b.dir} -DPET_BOARD=${board}${extra} -DPET_DEFAULT_PACK=${pack} build`;
     const t = Date.now();
     log(`build firmware ${board} · ${pack}`);
     let last = 0;
@@ -133,8 +139,9 @@ async function pairWith(code) {
       page?.close();
       page = p;
       p.handle('hello', () => ({ name: NAME, version: VERSION, caps: caps() }));
-      p.handle('build_app', (a) => buildApp(a, p));
-      p.handle('build_firmware', (a) => buildFirmware(a, p));
+      const logged = (what, fn) => (a) => fn(a, p).catch((e) => { log(`${what} failed: ${e.message.split('\n').slice(0, 6).join(' | ')}`); throw e; });
+      p.handle('build_app', logged('build app', buildApp));
+      p.handle('build_firmware', logged('build firmware', buildFirmware));
       p.addEventListener('close', () => { if (page === p) { page = null; pageInfo = null; log('the page left (it can pair again with the same code)'); } });
       p.call('hello', {}).then((i) => { pageInfo = i; }).catch(() => {});
       log('paired with the page');
