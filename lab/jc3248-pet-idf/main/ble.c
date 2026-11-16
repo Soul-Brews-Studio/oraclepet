@@ -44,6 +44,8 @@
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs_adv.h"   /* ble_hs_adv_parse_fields — read the time-beacon name */
+#include "esp_timer.h"
+#include "stand.h"            /* bot stand: other pets heard by the scan */
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
@@ -320,6 +322,10 @@ static int gap_disc_event(struct ble_gap_event *event, void *arg)
     uint8_t n = (f.name_len < sizeof(nm) - 1) ? f.name_len : (uint8_t)(sizeof(nm) - 1);
     memcpy(nm, f.name, n);
     nm[n] = 0;
+    if (strncmp(nm, "Claude-", 7) == 0) {       /* another pet: the bot stand judges it */
+        if (strcmp(nm, s_devName) != 0) stand_heard(nm, event->disc.rssi, esp_timer_get_time());
+        return 0;
+    }
     if (strncmp(nm, "clk:", 4) != 0) return 0;
 
     /* "clk:<epoch>:<tzoff>" -> two longs */

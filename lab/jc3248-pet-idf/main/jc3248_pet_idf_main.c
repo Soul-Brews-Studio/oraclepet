@@ -36,6 +36,7 @@
 #include "hud.h"       /* STEP 7: bottom HUD strip (name + status + connection dot) */
 #include "audio.h"     /* STEP 8: i2s_std tone synth — tap plays the ribbit */
 #include "ble.h"       /* STEP 9: NimBLE NUS heartbeat bridge -> live HUD */
+#include "stand.h"     /* bot stand: how long other pets stay next to this one */
 #include "petclock.h"  /* STEP 10: top-strip clock fed by host NTP over BLE */
 #include "ota.h"       /* STEP 11: firmware update over BLE */
 #include "petapp.h"    /* STEP 12: pet apps on WebAssembly */
@@ -424,6 +425,38 @@ void app_main(void)
             last_link = link;
             if (hud_ok) hud_set_status(link ? "linked" : "idle  BLE adv");
             if (hud_ok) hud_set_link(link);
+        }
+
+        /* Bot stand: other pets' adverts (ble.c scan) -> visits. Unlinked, the status line
+         * shows the leader; linked (scan paused), the host gets the top 3 every 10 s. */
+        {
+            static int64_t stand_next_us = 0, stand_report_us = 0;
+            static char stand_shown[48] = "";
+            int64_t now_us = esp_timer_get_time();
+            if (now_us >= stand_next_us) {
+                stand_next_us = now_us + 1000000;
+                stand_tick(now_us);
+                char sl[48];
+                if (!link && hud_ok && stand_line(sl, sizeof sl, now_us) && strcmp(sl, stand_shown) != 0) {
+                    strlcpy(stand_shown, sl, sizeof stand_shown);
+                    hud_set_status(sl);
+                }
+                if (link) stand_shown[0] = 0;          /* repaint the leader after the link drops */
+                if (link && now_us >= stand_report_us) {
+                    stand_report_us = now_us + 10000000;
+                    stand_pet_t top[3];
+                    int n = stand_top(top, 3, now_us);
+                    for (int i = 0; i < n; i++) {
+                        char ev[160];
+                        snprintf(ev, sizeof ev,
+                                 "{\"evt\":\"stand\",\"rank\":%d,\"pet\":\"%s\",\"on\":%d,\"now\":%d,\"best\":%d,\"rssi\":%d,\"ago\":%d}",
+                                 i + 1, top[i].name, top[i].on ? 1 : 0, stand_current_s(&top[i], now_us),
+                                 (int)(top[i].best_us / 1000000), top[i].rssi,
+                                 (int)((now_us - top[i].last_seen_us) / 1000000));
+                        bleNotifyLine(ev);
+                    }
+                }
+            }
         }
 
         /* STEP 10: connectionless TIME BROADCAST -> clock. The host advertises

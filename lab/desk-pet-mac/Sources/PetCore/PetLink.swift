@@ -56,6 +56,8 @@ public final class PetLink: NSObject, ObservableObject {
     /// heart with it. Same window as the firmware's REACT_MS.
     @Published public private(set) var reacting = false
     @Published public private(set) var tapCount = 0
+    /// Bot stand: the pet's last report, rank -> {"pet","on","now","best","rssi","ago"} ({"evt":"stand"}).
+    @Published public private(set) var standBoard: [Int: [String: Any]] = [:]
     /// What the pet runs (read from the OTA control characteristic); nil on firmware without OTA.
     @Published public private(set) var firmware: PetFirmware?
     @Published public private(set) var ota: OTAPhase = .idle
@@ -371,6 +373,12 @@ extension PetLink: CBPeripheralDelegate {
                let text = o["text"] as? String {
                 petLog.notice("pet asks to say '\(text, privacy: .public)'")   // pet.say() in a wasm app
                 say(text, fromApp: true)                                       // not what "Play again" repeats
+                continue
+            }
+            if let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], o["evt"] as? String == "stand" {
+                // bot stand: the pet's top 3 (who stayed next to it longest), every 10 s while linked
+                petLog.notice("pet stand \(String(decoding: line, as: UTF8.self), privacy: .public)")
+                if let rank = o["rank"] as? Int { standBoard[rank] = o }
                 continue
             }
             if let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], o["evt"] as? String == "touch" {

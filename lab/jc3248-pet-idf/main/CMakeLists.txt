@@ -9,6 +9,7 @@ set(PET_SRCS
     "petclock.c"       # step 10: top-strip clock (host NTP over BLE)
     "ota.c"            # step 11: firmware update over BLE (ota_0/ota_1)
     "petapp.c"         # step 12: pet apps on WebAssembly (WAMR host)
+    "stand.c"          # bot stand: how long other pets stay next to this one
 )
 
 # Side-by-side native sketch of moremas/build-with-claude's Cardputer Buddy UI.

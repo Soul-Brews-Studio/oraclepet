@@ -257,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .petUpdateOutdated, object: nil) }
             if urls.count == 1 { return }
         }
-        let needsPet = urls.contains { $0.scheme == "deskpet" && !["firmware", "settings", "select", "update"].contains($0.host ?? "") }
+        let needsPet = urls.contains { $0.scheme == "deskpet" && !["firmware", "settings", "select", "update", "link"].contains($0.host ?? "") }
         if needsPet, tries < 30, !target(for: pet).isReady || (pet.map { !(target(for: $0).petName ?? "").hasSuffix($0) } ?? false) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.handle(urls, tries: tries + 1) }
             return
@@ -266,6 +266,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let link = target(for: lastPetParam)
         if urls.contains(where: { $0.scheme == "deskpet" && $0.host == "firmware" }) { showFirmware() }   // deskpet://firmware
         if urls.contains(where: { $0.scheme == "deskpet" && $0.host == "settings" }) { showSettings() }   // deskpet://settings
+        // deskpet://link?pet=5610&on=0: let go of a pet (a stand judge only scans while nothing is linked); on=1 links again
+        for url in urls where url.scheme == "deskpet" && url.host == "link" {
+            let on = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "on" })?.value != "0"
+            if on { link.connect() } else { link.disconnect() }
+        }
         // deskpet://app?file=/abs/x.wasm (`just app`): send the app and run it; deskpet://app?run=name|stop
         for url in urls where url.scheme == "deskpet" && url.host == "app" {
             let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
