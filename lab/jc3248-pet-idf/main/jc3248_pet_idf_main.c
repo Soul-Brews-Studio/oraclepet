@@ -102,6 +102,17 @@ static bool wave_draw(bool frame_redrawn)
     return true;
 }
 
+static char s_ble_id[16] = "";
+
+/* HUD line 1: "<pack> <ble id>", e.g. "pulse B214". */
+static void hud_name_with_id(void)
+{
+    char line[48];
+    if (s_ble_id[0]) snprintf(line, sizeof line, "%s %s", gif_pack_name(), s_ble_id);
+    else             snprintf(line, sizeof line, "%s", gif_pack_name());
+    hud_set_name(line);
+}
+
 void app_main(void)
 {
     /* ---- boot banner ---- */
@@ -305,6 +316,9 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "BLE device name: %s", ble_name);
     bleInit(ble_name);
+    /* the advertised id (B214 of Claude-B214) goes on the HUD next to the pack name,
+     * so a person can tell which pet in a scan list is the one on the desk */
+    snprintf(s_ble_id, sizeof s_ble_id, "%s", ble_name + 7);
 
     /* ---- voice over WiFi (lab/oraclepet-lib/VOICE.md): BLE sends the network, WiFi carries
      * the mic to the voice server. Nothing happens until a network is configured. */
@@ -319,7 +333,7 @@ void app_main(void)
     bool hud_ok = false;
     if (gif_ok) {
         hud_ok = hud_init(gif_bg());
-        hud_set_name(gif_pack_name());        /* actual loaded pack (bufo/cat/…) */
+        hud_name_with_id();        /* actual loaded pack (bufo/cat/…) */
         hud_set_status("idle  BLE adv");      /* live line: updated by blePoll() */
         hud_set_link(false);                  /* gray until a central connects    */
         if (hud_ok) { hud_draw(); display_flush(); }
@@ -441,7 +455,7 @@ void app_main(void)
             char pk[24];
             if (gif_ok && ota_take_pack_request(pk, sizeof pk)) {
                 bool ok = gif_select_pack(pk);
-                if (ok && hud_ok) hud_set_name(gif_pack_name());
+                if (ok && hud_ok) hud_name_with_id();
                 ota_pack_result(pk, ok);
             }
         }
