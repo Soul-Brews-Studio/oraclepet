@@ -224,6 +224,11 @@ struct FirmwareView: View {
     @ObservedObject var library: FirmwareLibrary
     @ObservedObject var packs: PackLibrary
     @ObservedObject var apps: AppLibrary
+    /// The main window passes these: the selected pet's live card (screen, fleet, mode, link)
+    /// sits next to its firmware page, so OraclePet is one window. Nil = firmware page only.
+    var feed: FleetFeed? = nil
+    var display: DisplayModel? = nil
+    var onPeek: (Agent) -> Void = { _ in }
     @ObservedObject private var registry = PetRegistry.shared
     @StateObject private var updater = OutdatedUpdater()
     @State private var selection: String?
@@ -326,8 +331,19 @@ struct FirmwareView: View {
             .navigationSplitViewColumnWidth(min: 230, ideal: 260)
         } detail: {
             if selection != nil {
-                FirmwarePage(link: detailLink, library: library, packs: packs, apps: apps)
-                    .id(ObjectIdentifier(detailLink))
+                HStack(alignment: .top, spacing: 0) {
+                    if let feed, let display {
+                        ScrollView {
+                            PetView(link: detailLink, feed: feed, display: display, onPeek: onPeek,
+                                    onFirmware: {}, extra: detailLink === a ? b : a)
+                        }
+                        .frame(width: 392)
+                        .id(ObjectIdentifier(detailLink))
+                        Divider()
+                    }
+                    FirmwarePage(link: detailLink, library: library, packs: packs, apps: apps)
+                        .id(ObjectIdentifier(detailLink))
+                }
             } else {
                 Text("Pick a pet").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
             }

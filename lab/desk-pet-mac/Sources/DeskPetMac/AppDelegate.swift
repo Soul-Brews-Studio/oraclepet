@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The second pet (e.g. the 2.8in board): same heartbeat, its own saved pet. Created at
     /// launch, after `link` learns to leave it alone.
     private var link2: PetLink!
+    private var qrTap: QRTap?                 // double-tap a pet -> PromptPay QR for 30 s
     private lazy var feed = FleetFeed(link: link)
     private let display = DisplayModel()
     private let launcher = SessionLauncher()
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // two pets, two links, never the same board
         link.avoid = { [weak self] in Set([self?.link2?.peripheralID].compactMap { $0 }) }
         link2 = PetLink(savedKey: "petPeripheralID2")
+        qrTap = QRTap(links: [link, link2])
         link2.avoid = { [weak self] in Set([self?.link.peripheralID].compactMap { $0 }) }
         feed.extraLinks = [link2]
         buildMainMenu()
@@ -74,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch mode {
         case .window:
             mascot.orderOut(nil)
+            PetRegistry.shared.setScanning(true)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         case .mascot:
@@ -111,19 +114,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Window
 
     private func buildWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 600),
-                          styleMask: [.titled, .closable, .miniaturizable],
+        // One window: pet list | the selected pet's live card | its firmware, packs, apps, USB.
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 820),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "OraclePet"
         window.isReleasedWhenClosed = false
-        let hosting = FirstMouseHostingView(rootView: PetView(link: link, feed: feed, display: display,
-                                                      onPeek: { [weak self] in self?.showPeek($0) },
-                                                      onFirmware: { [weak self] in self?.showFirmware() },
-                                                      extra: link2))
-        window.contentView = hosting
-        window.setContentSize(hosting.fittingSize)
-        window.setFrameAutosaveName("DeskPetMainWindow")
+        window.contentView = FirstMouseHostingView(rootView: FirmwareView(
+            a: link, b: link2, library: library, packs: packs, apps: apps,
+            feed: feed, display: display, onPeek: { [weak self] in self?.showPeek($0) }))
+        window.contentMinSize = NSSize(width: 1160, height: 640)
+        window.setFrameAutosaveName("OraclePetOneWindow")
         window.center()
+        // the pet list's passive scan runs while this window is on screen
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            PetRegistry.shared.setScanning(false)
+        }
     }
 
     @objc private func showWindow() {
@@ -206,30 +212,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
+    /// Firmware lives in the main window now (one window); kept for the menu item and URLs.
     @objc func showFirmware() {
-        if firmwareWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 720),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                             backing: .buffered, defer: false)
-            w.title = "Pet Firmware"
-            w.isReleasedWhenClosed = false
-            w.contentView = FirstMouseHostingView(rootView: FirmwareView(a: link, b: link2, library: library, packs: packs, apps: apps))
-            w.contentMinSize = NSSize(width: 780, height: 560)          // sidebar + page
-            w.setFrameAutosaveName("DeskPetFirmwareSplit")
-            // the sidebar's passive scan runs only while this window is open
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
-                PetRegistry.shared.setScanning(false)
-            }
-            w.center()
-            firmwareWindow = w
-        }
-        PetRegistry.shared.setScanning(true)
         library.reload()
         packs.reload()
         apps.reload()
-        NSApp.activate(ignoringOtherApps: true)
-        firmwareWindow?.makeKeyAndOrderFront(nil)
+        display.mode = .window
+        apply(.window)
     }
+
 
     private func sendFirmware(_ url: URL) {
         guard let image = try? Data(contentsOf: url) else {

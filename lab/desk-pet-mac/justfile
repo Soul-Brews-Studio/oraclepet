@@ -164,3 +164,19 @@ pack name:
 clean:
     swift package clean
     rm -rf "{{app_bundle}}"
+
+# Static PromptPay QR (no amount) for the double-tap: just promptpay 0812345678  (or: just promptpay mock)
+# Builds the pack, checks the QR reads back the exact payload, sends it to every linked pet.
+# The real ID stays in ~/Library/Application Support/Desk Pet/Packs (not in this repo).
+promptpay id:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="$HOME/Library/Caches/OraclePet/promptpay-build/promptpay"
+    arg="{{id}}"; [ "$arg" = mock ] || arg="promptpay:$arg"
+    uv run -q --with qrcode --with pillow --with opencv-python-headless python -I tools/promptpay_pack.py "$build" "$arg"
+    pgrep -x {{exec_name}} >/dev/null || { echo "OraclePet is not running (just launch)"; exit 1; }
+    dir=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$build")
+    for pet in $(python3 -c 'import json;d=json.load(open("/tmp/deskpet-status.json"));print(" ".join(p["name"].split("-")[-1] for p in d["pets"] if p.get("link")=="connected" and p.get("firmware")))'); do
+        echo "sending to Claude-$pet"; open "deskpet://pack?dir=$dir&pet=$pet"; sleep 12
+    done
+    echo "done: double-tap a pet to show it; it goes back after 30 s"

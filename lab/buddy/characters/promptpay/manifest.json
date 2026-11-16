@@ -1,0 +1,21 @@
+{
+  "name": "promptpay",
+  "colors": {
+    "body": "#000000",
+    "bg": "#FFFFFF",
+    "text": "#000000",
+    "textDim": "#555555",
+    "ink": "#000000"
+  },
+  "states": {
+    "sleep": "qr.gif",
+    "busy": "qr.gif",
+    "attention": "qr.gif",
+    "celebrate": "qr.gif",
+    "dizzy": "qr.gif",
+    "heart": "qr.gif",
+    "idle": [
+      "qr.gif"
+    ]
+  }
+}
