@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The second pet (e.g. the 2.8in board): same heartbeat, its own saved pet. Created at
     /// launch, after `link` learns to leave it alone.
     private var link2: PetLink!
-    private var qrTap: QRTap?                 // double/triple tap a pet -> PromptPay QR for 30 s
+    private var qrTap: QRTap?                 // tap a pet -> heart, then its PromptPay QR for 30 s
     private lazy var feed = FleetFeed(link: link)
     private let display = DisplayModel()
     private let launcher = SessionLauncher()

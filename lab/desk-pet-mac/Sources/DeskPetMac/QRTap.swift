@@ -2,22 +2,18 @@ import Combine
 import Foundation
 import PetCore
 
-/// A tap shows the pet's heart (the firmware does that). A double or triple tap (two presses
-/// within 0.6 s) -> the shop's PromptPay QR (the "promptpay" pack) for 30 s, then back to the
-/// pack it showed. A tap while the QR is up -> back at once (taps in its first 1.2 s are the
-/// rest of the double/triple tap and are ignored).
+/// Tap a pet -> it shows its heart (the firmware does that), and 1.5 s later the shop's PromptPay
+/// QR (the "promptpay" pack) for 30 s, then back to the pack it showed. A tap while the QR is up
+/// -> back at once (taps in its first 1.2 s are ignored, so an extra tap does not close it).
 ///
-///     state ──tap──▶ heart          state ──double/triple tap──▶ QR (30 s) ──tap or 30 s──▶ state
-/// The pet already reports every touch ({"evt":"tap"} on NUS TX); no firmware change.
-/// The pack comes from the app (Resources/Packs/promptpay, from lab/buddy/characters) or from
-/// ~/Library/Application Support/Desk Pet/Packs/promptpay, and is sent the first time.
+///     state ──tap──▶ heart (1.5 s) ──auto──▶ QR (30 s) ──tap or 30 s──▶ state
 final class QRTap {
     static let pack = "promptpay"
-    let doubleTap: TimeInterval = 0.6            // two presses closer than this = double tap
+    let heartFor: TimeInterval = 1.5             // the heart shows this long before the QR
+    private var pending: [ObjectIdentifier: DispatchWorkItem] = [:]
     let showFor: TimeInterval = 30
 
     private var subs = Set<AnyCancellable>()
-    private var lastTap: [ObjectIdentifier: Date] = [:]
     private var restore: [ObjectIdentifier: (pack: String, work: DispatchWorkItem)] = [:]
 
     init(links: [PetLink]) {
@@ -36,16 +32,19 @@ final class QRTap {
         let k = ObjectIdentifier(l), now = Date()
         defer { lastEvent[k] = now }
         if let e = lastEvent[k], now.timeIntervalSince(e) < samePress { return }   // same press
-        if let shown = shownAt[k], now.timeIntervalSince(shown) < 1.2 { return }   // rest of a double/triple tap
+        if let shown = shownAt[k], now.timeIntervalSince(shown) < 1.2 { return }   // extra tap
         if l.firmware?.pack == Self.pack {                   // QR up: one tap puts the pet back
-            lastTap[k] = nil
             toggle(l)
-        } else if let t = lastTap[k], now.timeIntervalSince(t) < doubleTap {
-            lastTap[k] = nil                                 // double (or triple) tap
-            toggle(l)
-        } else {
-            lastTap[k] = now                                 // single tap: just the heart
+            return
         }
+        guard pending[k] == nil else { return }               // heart already on its way to the QR
+        let work = DispatchWorkItem { [weak self, weak l] in  // heart first, then the QR
+            guard let self, let l else { return }
+            self.pending[k] = nil
+            if l.firmware?.pack != Self.pack { self.toggle(l) }
+        }
+        pending[k] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + heartFor, execute: work)
     }
 
     private func toggle(_ l: PetLink) {
