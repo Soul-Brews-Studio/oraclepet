@@ -373,7 +373,9 @@ extension PetLink: CBPeripheralDelegate {
                 say(text, fromApp: true)                                       // not what "Play again" repeats
                 continue
             }
-            if let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], o["evt"] as? String == "tap" {
+            if let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], o["evt"] as? String == "touch" {
+                petLog.notice("pet touch ev=\(String(describing: o["ev"] ?? "?"), privacy: .public)")   // raw report, for diagnosis
+            } else if let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], o["evt"] as? String == "tap" {
                 tapCount += 1
                 reacting = true
                 reactSeq += 1

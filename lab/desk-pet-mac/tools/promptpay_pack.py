@@ -34,16 +34,21 @@ if payload.startswith("promptpay:"): payload = promptpay(payload[len("promptpay:
 print("payload", payload)
 q = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=1, border=2)
 q.add_data(payload); q.make(fit=True)
-m = q.get_matrix(); n = len(m); px = 3 if n * 3 <= 96 else 2
-W, H = 96, 100
+m = q.get_matrix(); n = len(m)
+W, H = 106, 133                      # the largest GIF the JC3248 draws at 3x: 318 x 399 in its 320 x 400 area
+px = max(1, min(W // n, (H - 14) // n))
 img = Image.new("P", (W, H), 0); img.putpalette([255,255,255, 0,0,0] + [0]*762)
 d = ImageDraw.Draw(img)
-ox = (W - n*px)//2; oy = 2
+CLOCK = 7                            # the pet's clock covers the top ~20 px = 7 GIF px (petclock.c, scale 2)
+label = "MOCKUP" if payload.startswith("MOCKUP") else "PromptPay"
+lb = d.textbbox((0, 0), label); lh = lb[3] - lb[1]
+block = n*px + 4 + lh                # QR, a 4 px gap, the label: centred as one block below the clock
+ox = (W - n*px)//2; oy = CLOCK + (H - CLOCK - block)//2
 for y,row in enumerate(m):
     for x,v in enumerate(row):
         if v: d.rectangle([ox+x*px, oy+y*px, ox+x*px+px-1, oy+y*px+px-1], fill=1)
-label = "MOCKUP" if payload.startswith("MOCKUP") else "PromptPay"
-d.text(((W - d.textlength(label))//2, H-12), label, fill=1)
+d.text(((W - d.textlength(label))//2, oy + n*px + 4 - lb[1]), label, fill=1)
+print("layout: top margin", oy - CLOCK, "px below the clock, bottom margin", H - (oy + block), "px")
 os.makedirs(out, exist_ok=True)
 img.save(f"{out}/qr.gif"); img.convert("RGB").resize((W*4,H*4), Image.NEAREST).save(f"{out}/../preview.png")
 states = {s: "qr.gif" for s in ["sleep","busy","attention","celebrate","dizzy","heart"]}; states["idle"] = ["qr.gif"]

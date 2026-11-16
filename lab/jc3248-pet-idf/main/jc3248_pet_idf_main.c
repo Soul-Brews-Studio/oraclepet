@@ -357,12 +357,33 @@ void app_main(void)
     bool last_link = false;           /* track edges so we only repaint on change   */
     int  want_act = PET_ACT_IDLE;     /* activity from the last heartbeat           */
     int64_t last_snap_us = 0;         /* when it arrived (stale after 30 s -> idle) */
+    int64_t last_touch_us = -1000000; /* last touch report: groups one press's reports */
+    const int64_t TAP_GAP_US = 400000;
+    int last_tev = 1;                 /* last touch event: a press starts after a finger-up */
     while (1) {
-        if (touch_poll(&tx, &ty)) {
-            ESP_LOGI(TAG, "TOUCH @ (%u, %u)", (unsigned)tx, (unsigned)ty);
-            if (gif_ok && !petapp_tap(tx, ty)) gif_on_touch();   /* tap -> the app, else the heart */
-            bleNotifyLine("{\"evt\":\"tap\"}");   /* let the desktop (Desk Pet) show the heart too */
-            audio_ribbit();               /* tap -> the frog call, alongside the heart */
+        int tev = -1;
+        if (touch_poll_ev(&tx, &ty, &tev)) {
+            /* Measured on the AXS15231B (5610, 2026-11-16): a press reports ev=2 (contact), at
+             * times twice, then ev=1 (finger up); ev=0 almost never. So a new press is the first
+             * non-up report after a finger-up, or after TAP_GAP_US of quiet. Finger-up never
+             * counts. Two quick presses are two taps (double tap). The app still gets every
+             * point; the heart, the tap event and the ribbit fire once per press. */
+            int64_t now_us = esp_timer_get_time();
+            bool fresh = tev != 1 && (last_tev == 1 || now_us - last_touch_us > TAP_GAP_US);
+            last_touch_us = now_us;
+            last_tev = tev;
+            ESP_LOGI(TAG, "TOUCH @ (%u, %u) ev=%d%s", (unsigned)tx, (unsigned)ty, tev, fresh ? "" : " (same press)");
+            {   /* every report to the host, so the event codes can be checked without a cable */
+                char ev[40];
+                snprintf(ev, sizeof ev, "{\"evt\":\"touch\",\"ev\":%d}", tev);
+                bleNotifyLine(ev);
+            }
+            bool took = gif_ok && petapp_tap(tx, ty);
+            if (fresh) {
+                if (gif_ok && !took) gif_on_touch();   /* tap -> the app, else the heart */
+                bleNotifyLine("{\"evt\":\"tap\"}");  /* let the desktop (OraclePet) know: once per press */
+                audio_ribbit();                       /* tap -> the frog call, alongside the heart */
+            }
         }
 
         /* ---- STEP 9: drain BLE heartbeats -> live HUD ----

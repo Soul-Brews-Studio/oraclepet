@@ -18,3 +18,5 @@ esp_err_t touch_init(void);
 
 /* Non-blocking. Returns true + fills *x,*y only on a fresh INT-gated touch. */
 bool touch_poll(uint16_t *x, uint16_t *y);
+/* Same INT gate, raw read: also returns the event (0 down, 1 up, 2 contact). */
+bool touch_poll_ev(uint16_t *x, uint16_t *y, int *event);
