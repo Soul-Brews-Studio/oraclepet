@@ -65,6 +65,10 @@ package: build
             echo "no build at $fw (skipped)"
         fi
     done
+    # espflash (esp-rs) for the USB card: first install / rescue without Python
+    ef="$(command -v espflash || ls "$HOME/.cargo/bin/espflash" 2>/dev/null || true)"
+    if [ -n "$ef" ]; then cp "$ef" "{{app_bundle}}/Contents/Resources/espflash"; echo "espflash: $("$ef" --version)"
+    else echo "espflash not found (cargo install espflash): USB card will say missing"; fi
     # App icon from the sleeping Siamese, every size iconutil wants
     rm -rf "{{iconset}}" && mkdir -p "{{iconset}}"
     for s in 16 32 128 256 512; do

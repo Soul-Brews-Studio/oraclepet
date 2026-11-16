@@ -166,6 +166,24 @@ public final class PetLink: NSObject, ObservableObject {
         central.cancelPeripheralConnection(p)
     }
 
+    /// The pet this link is told to use (its CoreBluetooth id), saved for the next launch.
+    public var savedID: UUID? { defaults.string(forKey: savedKey).flatMap(UUID.init(uuidString:)) }
+
+    /// Switch this link to one exact pet (the Pet Firmware sidebar, deskpet://select): let go of
+    /// the current one, save the choice, connect to it by id. Connected or advertising both work.
+    public func use(_ id: UUID) {
+        if peripheral?.identifier == id, state == .connected || state == .connecting { return }
+        disconnect { [weak self] in
+            guard let self else { return }
+            self.defaults.set(id.uuidString, forKey: self.savedKey)
+            self.pinned = id
+            self.petName = nil
+            self.firmware = nil
+            self.connect()
+        }
+    }
+    private var pinned: UUID?
+
     /// Forget the saved pet and scan again (a different board).
     public func forgetPet() {
         disconnect { [weak self] in
@@ -195,8 +213,13 @@ public final class PetLink: NSObject, ObservableObject {
     private func startLink() {
         guard central.state == .poweredOn, wantConnection else { return }
         if let p = peripheral, p.state == .connected || p.state == .connecting { return }
-        // Already connected by this Mac (after a relaunch it will not advertise).
         let taken = avoid()
+        // A pet chosen by hand (use(_:)) comes first: connect to exactly that one.
+        if let id = pinned, !taken.contains(id), let p = central.retrievePeripherals(withIdentifiers: [id]).first {
+            pinned = nil
+            return attach(p)
+        }
+        // Already connected by this Mac (after a relaunch it will not advertise).
         if let p = central.retrieveConnectedPeripherals(withServices: [PetGATT.service])
             .first(where: { ($0.name ?? "").hasPrefix(PetGATT.namePrefix) && !taken.contains($0.identifier) }) {
             return attach(p)
@@ -404,7 +427,9 @@ public enum OTAPhase: Equatable {
 extension PetLink {
     public var canUpdateFirmware: Bool { state == .connected && otaCtrl != nil && otaDataChar != nil && !ota.isBusy }
     /// Linked with an OTA service: a request now runs at once or waits its turn.
-    public var canQueueUpdate: Bool { state == .connected && otaCtrl != nil && otaDataChar != nil }
+    /// Buttons that start a transfer: off while one runs (a firmware write must not be cut by a
+    /// second request or by switching pets). deskpet:// URLs still queue behind it.
+    public var canQueueUpdate: Bool { state == .connected && otaCtrl != nil && otaDataChar != nil && !ota.isBusy }
 
     /// Full OTA: send an app image (build/jc3248_pet_idf.bin); the pet reboots into it.
     public func updateFirmware(_ image: Data) {

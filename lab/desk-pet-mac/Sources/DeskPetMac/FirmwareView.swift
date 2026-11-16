@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import PetCore
 import PetProtocol
 import SwiftUI
@@ -214,31 +215,267 @@ final class AppLibrary: ObservableObject {
 /// Full page for the pet's firmware: what it runs, what Desk Pet can send it, the update in
 /// progress, and what happened before. Opened from the menu bar or the Bluetooth card.
 /// The Firmware page for whichever pet is picked at the top (OraclePet drives two).
+/// Pet Firmware: a sidebar of every pet this Mac has seen (PetRegistry) and the chosen pet's page.
+/// Two Bluetooth links stay the only connections: link A keeps the pet it drives (the fleet
+/// heartbeat); picking any other pet moves link B (the workbench) to it. 2 pets or 100, same window.
 struct FirmwareView: View {
     @ObservedObject var a: PetLink
     @ObservedObject var b: PetLink
     @ObservedObject var library: FirmwareLibrary
     @ObservedObject var packs: PackLibrary
     @ObservedObject var apps: AppLibrary
-    @State private var second = false
+    @ObservedObject private var registry = PetRegistry.shared
+    @StateObject private var updater = OutdatedUpdater()
+    @State private var selection: String?
+    @State private var search = ""
+    @State private var filter = Filter.all
+    @State private var renaming: PetRegistry.Pet?
+    @State private var newLabel = ""
 
-    private func label(_ l: PetLink, _ n: Int) -> String {
-        let name = l.petName ?? "Pet \(n)"
-        let board = l.firmware.map { OTA.boardName($0.project) } ?? (l.isLinked ? "" : "not linked")
-        return board.isEmpty ? name : "\(name) · \(board)"
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All", nearby = "Nearby", outdated = "Outdated", oldFirmware = "No OTA"
+        var id: String { rawValue }
+    }
+
+    /// The newest firmware image the app holds for a board (by build time, then version).
+    private func newest(for project: String) -> FirmwareLibrary.Entry? {
+        library.entries.filter { $0.info.project == project }
+            .max { (Self.builtDate($0.info.built) ?? .distantPast, $0.info.version) < (Self.builtDate($1.info.built) ?? .distantPast, $1.info.version) }
+    }
+
+    /// "Nov 16 2026 16:02:36" / "Nov  6 2026 09:01:02" (C __DATE__ __TIME__) -> Date. String order is wrong across months.
+    static func builtDate(_ s: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "MMM d yyyy HH:mm:ss"
+        return f.date(from: s.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " "))
+    }
+
+    private func isOutdated(_ p: PetRegistry.Pet) -> Bool {
+        guard p.hasOTA == true, !p.project.isEmpty, let n = newest(for: p.project) else { return false }
+        return !(n.info.version == p.version && (n.info.sha.isEmpty || p.sha.isEmpty || n.info.sha.hasPrefix(p.sha) || p.sha.hasPrefix(n.info.sha)))
+    }
+
+    private var shown: [PetRegistry.Pet] {
+        let q = search.lowercased()
+        return registry.pets.filter { p in
+            (q.isEmpty || p.name.lowercased().contains(q) || p.label.lowercased().contains(q) || p.version.lowercased().contains(q))
+            && {
+                switch filter {
+                case .all: return true
+                case .nearby: return p.seen(within: 60) || linkFor(p.id) != nil
+                case .outdated: return isOutdated(p)
+                case .oldFirmware: return p.hasOTA == false
+                }
+            }()
+        }
+    }
+
+    private func linkFor(_ id: String) -> PetLink? {
+        if a.peripheralID?.uuidString == id { return a }
+        if b.peripheralID?.uuidString == id { return b }
+        return nil
+    }
+
+    /// A transfer or USB flash is running: the list and the other send buttons wait.
+    private var busy: Bool { a.ota.isBusy || b.ota.isBusy || updater.running || UsbFlasher.shared.isBusy }
+
+    /// The link the detail page shows: the one already on the pet, else the workbench.
+    private var detailLink: PetLink {
+        if let s = selection, let l = linkFor(s) { return l }
+        return b
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Pet", selection: $second) {
-                Text(label(a, 1)).tag(false)
-                Text(label(b, 2)).tag(true)
+        NavigationSplitView {
+            VStack(spacing: 0) {
+                List(selection: Binding(get: { selection }, set: { if !busy { selection = $0 } })) {
+                    ForEach(shown) { p in
+                        row(p).tag(p.id)
+                            .contextMenu {
+                                Button("Set label…") { newLabel = p.label; renaming = p }
+                                Button("Remove from list") { registry.remove(p.id) }.disabled(linkFor(p.id) != nil)
+                            }
+                    }
+                }
+                .searchable(text: $search, placement: .sidebar, prompt: "Search pets")
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Show", selection: $filter) {
+                        ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden()
+                    let linked = registry.pets.filter { linkFor($0.id) != nil }.count
+                    let near = registry.pets.filter { $0.seen(within: 60) }.count
+                    Text("\(registry.pets.count) pets · \(near) nearby · \(linked) linked")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if busy && !updater.running {
+                        Label("Updating: pet list locked until it finishes", systemImage: "lock.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    let outdated = registry.pets.filter(isOutdated)
+                    Button(updater.running ? "Updating \(updater.done + 1)/\(updater.total)…" : "Update outdated (\(outdated.count))") {
+                        updater.start(outdated.compactMap { p in newest(for: p.project).map { (p, $0) } }, link: b, avoid: a)
+                    }
+                    .disabled(busy || outdated.isEmpty)
+                    if updater.running { Button("Stop after this pet") { updater.stop() }.controlSize(.small) }
+                    if let m = updater.message { Text(m).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                }
+                .padding(10)
             }
-            .pickerStyle(.segmented).labelsHidden()
-            .padding(.horizontal, 20).padding(.top, 12)
-            FirmwarePage(link: second ? b : a, library: library, packs: packs, apps: apps)
-                .id(second)
+            .navigationSplitViewColumnWidth(min: 230, ideal: 260)
+        } detail: {
+            if selection != nil {
+                FirmwarePage(link: detailLink, library: library, packs: packs, apps: apps)
+                    .id(ObjectIdentifier(detailLink))
+            } else {
+                Text("Pick a pet").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .onAppear {
+            registry.note(a); registry.note(b)
+            if let key = registry.requestedSelection, let p = registry.find(key) { selection = p.id; registry.requestedSelection = nil }
+            if selection == nil { selection = (a.peripheralID ?? b.peripheralID)?.uuidString }
+        }
+        .onChange(of: registry.requestedSelection) { _, key in
+            guard let key, !busy, let p = registry.find(key) else { return }
+            selection = p.id; registry.requestedSelection = nil
+        }
+        .onChange(of: selection) { _, id in
+            guard let id, linkFor(id) == nil, let u = UUID(uuidString: id), !updater.running else { return }
+            b.use(u)                                        // the workbench moves to the chosen pet
+        }
+        .onReceive(a.objectWillChange.debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { _ in registry.note(a) }
+        .onReceive(b.objectWillChange.debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { _ in registry.note(b) }
+        .onReceive(NotificationCenter.default.publisher(for: .petUpdateOutdated)) { _ in
+            let outdated = registry.pets.filter(isOutdated)
+            updater.start(outdated.compactMap { p in newest(for: p.project).map { (p, $0) } }, link: b, avoid: a)
+        }
+
+        .alert("Label for \(renaming?.name ?? "")", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("e.g. Nat desk", text: $newLabel)
+            Button("Save") { if let r = renaming { registry.setLabel(newLabel, for: r.id) }; renaming = nil }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
+    }
+
+    private func row(_ p: PetRegistry.Pet) -> some View {
+        let link = linkFor(p.id)
+        let linked = link?.isLinked ?? false
+        let dot: Color = linked ? .green : (p.seen(within: 60) ? .gray : .clear)
+        return HStack(spacing: 8) {
+            Circle().fill(dot).overlay(Circle().stroke(.secondary.opacity(0.5), lineWidth: dot == .clear ? 1 : 0))
+                .frame(width: 8, height: 8)
+                .help(linked ? "Connected" : (p.seen(within: 60) ? "Nearby, not connected" : "Not seen in the last minute"))
+                .accessibilityLabel(linked ? "Connected" : (p.seen(within: 60) ? "Nearby" : "Away"))
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(p.shortName).font(.body.monospaced().weight(.medium))
+                    if !p.label.isEmpty { Text(p.label).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                HStack(spacing: 4) {
+                    if p.hasOTA == false {
+                        Label("old firmware", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    } else if !p.version.isEmpty {
+                        Text(p.version + (p.slot.isEmpty ? "" : " · " + p.slot))
+                        if isOutdated(p) { Image(systemName: "arrow.up.circle.fill").foregroundStyle(.blue).help("Newer firmware in the library") }
+                    } else {
+                        Text("not linked yet")
+                    }
+                    if let r = p.rssi, p.seen(within: 60) { Text("\(r) dBm").foregroundStyle(.tertiary) }
+                }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if link === a { Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.pink).help("Follows the herdr fleet (link A)") }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+extension Notification.Name {
+    /// deskpet://select?pet=5610 -> the Pet Firmware sidebar selects that pet.
+    static let petSelect = Notification.Name("co.laris.deskpet.select")
+    /// deskpet://update?outdated=1 -> "Update outdated" (agents, fleet scripts)
+    static let petUpdateOutdated = Notification.Name("co.laris.deskpet.updateOutdated")
+}
+
+/// "Update outdated": one pet after another on the workbench link. Each step moves link B to
+/// the pet, waits until it can take an update, sends the newest image for its board, waits for
+/// done or failed, then goes on. Never touches link A's pet. Stops after a failure.
+final class OutdatedUpdater: ObservableObject {
+    @Published private(set) var running = false
+    @Published private(set) var done = 0
+    @Published private(set) var total = 0
+    @Published private(set) var message: String?
+    private var queue: [(PetRegistry.Pet, FirmwareLibrary.Entry)] = []
+    private var stopRequested = false
+    private weak var link: PetLink?
+    private var timer: Timer?
+    private var phaseStarted = Date()
+    private enum Step { case connecting, sending, waiting }
+    private var step = Step.connecting
+    private var startedOTA = false
+    private var sawBusy = false               // a .done/.failed left from the last pet is not this one
+
+    func start(_ jobs: [(PetRegistry.Pet, FirmwareLibrary.Entry)], link: PetLink, avoid: PetLink) {
+        let held = avoid.peripheralID?.uuidString
+        queue = jobs.filter { $0.0.id != held }
+        let skipped = jobs.count - queue.count
+        guard !queue.isEmpty else { message = skipped > 0 ? "Only the fleet pet is outdated: update it from its own page" : nil; return }
+        self.link = link
+        total = queue.count; done = 0; stopRequested = false; running = true
+        message = skipped > 0 ? "Skipping the fleet pet (link A): update it from its page" : nil
+        next()
+    }
+
+    func stop() { stopRequested = true; message = "Stopping after this pet" }
+
+    private func next() {
+        timer?.invalidate()
+        guard running, let link else { return finish(nil) }
+        if stopRequested || queue.isEmpty { return finish(queue.isEmpty ? "Updated \(done) of \(total)" : "Stopped: \(done) of \(total) updated") }
+        let (pet, _) = queue[0]
+        guard let id = pet.uuid else { queue.removeFirst(); return next() }
+        message = "\(pet.name): connecting"
+        step = .connecting; startedOTA = false; phaseStarted = Date()
+        link.use(id)
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
+    }
+
+    private func tick() {
+        guard let link, !queue.isEmpty else { return }
+        let (pet, image) = queue[0]
+        let waited = Date().timeIntervalSince(phaseStarted)
+        switch step {
+        case .connecting:
+            if link.peripheralID?.uuidString == pet.id, link.canUpdateFirmware, link.firmware != nil || waited > 15 {
+                guard let data = try? Data(contentsOf: image.url) else { return fail(pet, "cannot read \(image.url.lastPathComponent)") }
+                if let fw = link.firmware, fw.project != image.info.project { return fail(pet, "board is \(fw.project), image is \(image.info.project)") }
+                message = "\(pet.name): sending \(image.info.version)"
+                link.updateFirmware(data)
+                if case .failed(let m) = link.ota { return fail(pet, m) }   // refused on the spot
+                step = .sending; phaseStarted = Date(); sawBusy = link.ota.isBusy
+            } else if waited > 45 {
+                fail(pet, "not reachable in 45 s")
+            }
+        case .sending, .waiting:
+            if link.ota.isBusy { sawBusy = true }
+            switch link.ota {
+            case .done(let m) where sawBusy: message = "\(pet.name): \(m)"; done += 1; queue.removeFirst(); next()
+            case .failed(let m) where sawBusy: fail(pet, m)
+            case .sending(let f): message = "\(pet.name): \(Int(f * 100))%"
+            default: if waited > 240 { fail(pet, "no result in 4 min") }
+            }
+        }
+    }
+
+    private func fail(_ pet: PetRegistry.Pet, _ why: String) { finish("\(pet.name): \(why) — stopped (\(done) of \(total) updated)") }
+
+    private func finish(_ m: String?) {
+        timer?.invalidate(); timer = nil
+        running = false; queue = []
+        if let m { message = m }
     }
 }
 
@@ -254,18 +491,21 @@ struct FirmwarePage: View {
     @ObservedObject var library: FirmwareLibrary
     @ObservedObject var packs: PackLibrary
     @ObservedObject var apps: AppLibrary
+    @ObservedObject private var usb = UsbFlasher.shared
+    @State private var usbApp: URL?
     @State private var dropping = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                onPetCard
+                packsCard                                      // most used: change the character
                 progressCard                                   // always there: the page never shifts
-                voiceCard
-                libraryCard
-                packsCard
+                onPetCard
                 appsCard
+                libraryCard
+                usbCard
+                voiceCard
                 Text("First time on a pet: flash once over USB (the OTA partition table and bootloader). After that every update goes over Bluetooth, and a bad image rolls back to the previous one by itself.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
@@ -735,6 +975,72 @@ struct FirmwarePage: View {
             Text(what.dropFirst(2)).font(.caption).foregroundStyle(newest ? .primary : .secondary).lineLimit(1)
             Spacer(minLength: 0)
         }
+    }
+
+    // MARK: USB (espflash, esp-rs): first install or rescue
+
+    private var usbCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("Port", selection: $usb.port) {
+                        if usb.ports.isEmpty { Text("No USB pet").tag("") }
+                        ForEach(usb.ports, id: \.self) { Text($0.replacingOccurrences(of: "/dev/", with: "")).tag($0) }
+                    }
+                    .frame(maxWidth: 260)
+                    Button { usb.refreshPorts() } label: { Image(systemName: "arrow.clockwise") }
+                        .help("Look for USB ports again")
+                    Spacer()
+                    if usb.espflash == nil { tag("espflash missing", .red) } else { tag("espflash", .blue) }
+                }
+                HStack {
+                    Button(usb.folder == nil ? "Choose firmware folder…" : usb.folder!.lastPathComponent) { chooseUsbFolder() }
+                        .help(usb.folder?.path ?? "A board folder from the release: bootloader.bin, partition-table.bin, ota_data_initial.bin, app-<pack>.bin")
+                    let images = usb.appImages()
+                    Picker("App", selection: $usbApp) {
+                        if images.isEmpty { Text("no app-*.bin").tag(URL?.none) }
+                        ForEach(images, id: \.self) { Text($0.lastPathComponent).tag(URL?.some($0)) }
+                    }
+                    .frame(maxWidth: 240)
+                    .onAppear { if usbApp == nil { usbApp = images.first } }
+                    .onChange(of: usb.folder) { _, _ in usbApp = usb.appImages().first }
+                }
+                Toggle("Also write storage (every pack; replaces packs sent over Bluetooth)", isOn: $usb.includeStorage)
+                    .font(.callout)
+                HStack {
+                    Button(usb.isBusy ? "Flashing…" : "Flash over USB") { if let a = usbApp { usb.flash(app: a) } }
+                        .disabled(usb.isBusy || link.ota.isBusy || usbApp == nil || usb.port.isEmpty || usb.espflash == nil)
+                        .buttonStyle(.borderedProminent)
+                    if usb.isBusy { Button("Stop") { usb.cancel() } }
+                    Spacer()
+                }
+                if usb.isBusy || usb.progress > 0 {
+                    ProgressView(value: usb.progress)
+                }
+                switch usb.phase {
+                case .idle: EmptyView()
+                case .running(let m): Text(m).font(.caption.monospaced()).foregroundStyle(.secondary)
+                case .done(let m): Label(m, systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
+                case .failed(let m): Label(m, systemImage: "xmark.octagon.fill").foregroundStyle(.red).font(.callout)
+                }
+                if !usb.lastLine.isEmpty {
+                    Text(usb.lastLine).font(.caption.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        } label: {
+            Label("USB (espflash)", systemImage: "cable.connector")
+        }
+        .onAppear { usb.refreshPorts() }
+    }
+
+    private func chooseUsbFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a board folder (e.g. oraclepet-fw/jc3248)"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        if panel.runModal() == .OK, let u = panel.url { usb.folder = u }
     }
 
     private var historyCard: some View {

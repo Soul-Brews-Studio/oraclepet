@@ -208,16 +208,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showFirmware() {
         if firmwareWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 680),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 720),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = "Pet Firmware"
             w.isReleasedWhenClosed = false
             w.contentView = FirstMouseHostingView(rootView: FirmwareView(a: link, b: link2, library: library, packs: packs, apps: apps))
-            w.setFrameAutosaveName("DeskPetFirmware")
+            w.contentMinSize = NSSize(width: 780, height: 560)          // sidebar + page
+            w.setFrameAutosaveName("DeskPetFirmwareSplit")
+            // the sidebar's passive scan runs only while this window is open
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
+                PetRegistry.shared.setScanning(false)
+            }
             w.center()
             firmwareWindow = w
         }
+        PetRegistry.shared.setScanning(true)
         library.reload()
         packs.reload()
         apps.reload()
@@ -247,7 +253,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// links are still connecting, and the URL went to the wrong pet or nowhere). 30 s at most.
     private func handle(_ urls: [URL], tries: Int) {
         let pet = urls.lazy.compactMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "pet" })?.value }.first
-        let needsPet = urls.contains { $0.scheme == "deskpet" && !["firmware", "settings"].contains($0.host ?? "") }
+        // deskpet://select?pet=5610 (or a label): open Pet Firmware with that pet chosen in the sidebar
+        if let sel = urls.first(where: { $0.scheme == "deskpet" && $0.host == "select" }) {
+            let key = URLComponents(url: sel, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "pet" })?.value
+            showFirmware()
+            if let key { PetRegistry.shared.requestedSelection = key }     // picked up even on first open
+            if urls.count == 1 { return }
+        }
+        // deskpet://update?outdated=1: every outdated pet in the sidebar, one after another (link B)
+        if urls.contains(where: { $0.scheme == "deskpet" && $0.host == "update" }) {
+            showFirmware()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .petUpdateOutdated, object: nil) }
+            if urls.count == 1 { return }
+        }
+        let needsPet = urls.contains { $0.scheme == "deskpet" && !["firmware", "settings", "select", "update"].contains($0.host ?? "") }
         if needsPet, tries < 30, !target(for: pet).isReady || (pet.map { !(target(for: $0).petName ?? "").hasSuffix($0) } ?? false) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.handle(urls, tries: tries + 1) }
             return
