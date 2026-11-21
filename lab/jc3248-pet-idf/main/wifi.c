@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -31,6 +32,19 @@ static TimerHandle_t s_retry;
 static volatile bool s_scanning;               /* a scan owns the radio: no reconnects meanwhile */
 static volatile bool s_have_ssid;              /* a saved network exists: only then does STA connect */
 static bool          s_inited;                 /* netif + driver + handlers set up (once) */
+/* The DBK listener (dbk.c) must not change channel while the STA is joining or joined:
+ *   s_connecting  an esp_wifi_connect() is in flight (set before the call, cleared on CONNECTED /
+ *                 a real DISCONNECTED / GOT_IP); capped by s_connect_us + CONNECT_CAP_US so a lost
+ *                 event can never block the listener for ever;
+ *   s_assoc       joined to the AP (CONNECTED .. DISCONNECTED), including the DHCP window. */
+#define CONNECT_CAP_US   (15 * 1000000LL)
+#define RETRY_FAST_MS    5000
+#define RETRY_SLOW_MS    60000
+#define RETRY_FAST_TRIES 3
+static volatile bool    s_connecting, s_assoc;
+static volatile int64_t s_connect_us;
+static int              s_fails;                  /* failed joins in a row (event task) */
+static volatile bool    s_slow;                   /* dbk.c: locked on a kit, retry slowly */
 
 static void note(void)
 {
@@ -39,24 +53,61 @@ static void note(void)
 
 /* No saved network = no connect: the radio may be up only for ESP-NOW (dbk.c), and a connect
  * with an empty SSID would sweep every channel and make the DBK listener miss frames. */
-static void retry_cb(TimerHandle_t t) { (void)t; if (s_have_ssid) esp_wifi_connect(); }
+static void retry_arm(void);
+
+static void sta_connect(void)
+{
+    s_connect_us = esp_timer_get_time();
+    s_connecting = true;                          /* before the call: the event may beat us */
+    if (esp_wifi_connect() != ESP_OK) { s_connecting = false; retry_arm(); }   /* no event will come */
+}
+
+/* skip when a join is already in flight or done: its own event re-arms the timer */
+static void retry_cb(TimerHandle_t t) { (void)t; if (s_have_ssid && !s_scanning && !s_assoc && !wifi_busy()) sta_connect(); }
+
+/* Re-arm the retry timer: 5 s for the first few tries after a drop, then 60 s, so a saved
+ * network that is out of reach (pet carried to school) does not sweep every channel every 5 s
+ * and keep the DBK listener off its channel. Also 60 s while dbk.c is locked on a kit. */
+static void retry_arm(void)
+{
+    if (!s_retry) return;
+    int ms = (s_fails >= RETRY_FAST_TRIES || s_slow) ? RETRY_SLOW_MS : RETRY_FAST_MS;
+    xTimerChangePeriod(s_retry, pdMS_TO_TICKS(ms), 0);   /* also starts it */
+}
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        if (s_have_ssid) esp_wifi_connect();
+        if (s_have_ssid) sta_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        s_assoc = true;                           /* on the AP channel now; DHCP next */
+        s_connecting = false;
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *d = data;
+        int reason = d ? d->reason : 0;
         bool was_up = s_up;
         s_up = false;
-        snprintf(s_state, sizeof s_state, "connecting (reason %d)", d ? d->reason : 0);
+        s_assoc = false;
+        /* ASSOC_LEAVE while s_connecting is our own esp_wifi_disconnect() right before a new
+         * connect (connect_to): that connect is still in flight, keep s_connecting. An AP that
+         * leaves with reason 8 finds s_connecting false and is retried like any drop. */
+        bool own_leave = reason == WIFI_REASON_ASSOC_LEAVE && s_connecting;
+        if (!own_leave) s_connecting = false;
+        if (was_up) s_fails = 0;                  /* AP dropped: the fast retries first */
+        else if (!own_leave) s_fails++;
+        snprintf(s_state, sizeof s_state, "connecting (reason %d)", reason);
         if (was_up) voice_wifi_down();
         note();
-        if (!s_scanning) xTimerStart(s_retry, 0);     /* try again in 5 s, for ever */
+        /* try again in 5 s (60 s after 3 misses), for ever; not after our own leave, the
+         * connect that follows it reports for itself */
+        if (!s_scanning && !own_leave) retry_arm();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
         s_up = true;
+        s_assoc = true;
+        s_connecting = false;
+        s_fails = 0;
         /* no modem sleep: waking for every beacon (~102 ms) pulsed the supply, and the mic
          * heard it as a 10 Hz rumble (floor 350 instead of ~12), too loud for the VAD */
         esp_wifi_set_ps(WIFI_PS_NONE);
@@ -93,7 +144,7 @@ static bool radio_setup(void)
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
     esp_wifi_set_storage(WIFI_STORAGE_RAM);       /* the credentials live in our own NVS keys */
     esp_wifi_set_mode(WIFI_MODE_STA);
-    s_retry = xTimerCreate("wifi-retry", pdMS_TO_TICKS(5000), pdFALSE, NULL, retry_cb);
+    s_retry = xTimerCreate("wifi-retry", pdMS_TO_TICKS(RETRY_FAST_MS), pdFALSE, NULL, retry_cb);
     s_inited = true;
     return true;
 }
@@ -102,6 +153,7 @@ static void connect_to(const char *ssid, const char *pass)
 {
     if (!radio_setup()) return;
     s_have_ssid = true;
+    s_fails = 0;
     wifi_config_t wc = { 0 };
     strlcpy((char *)wc.sta.ssid, ssid, sizeof wc.sta.ssid);
     strlcpy((char *)wc.sta.password, pass, sizeof wc.sta.password);
@@ -109,8 +161,17 @@ static void connect_to(const char *ssid, const char *pass)
     esp_wifi_set_config(WIFI_IF_STA, &wc);
     snprintf(s_state, sizeof s_state, "connecting");
     note();
-    if (!s_started) { esp_wifi_start(); s_started = true; }    /* STA_START connects */
-    else { esp_wifi_disconnect(); esp_wifi_connect(); }
+    if (!s_started) {                             /* STA_START connects */
+        s_connect_us = esp_timer_get_time();
+        s_connecting = true;
+        esp_wifi_start();
+        s_started = true;
+    } else {
+        s_connect_us = esp_timer_get_time();
+        s_connecting = true;                      /* before the disconnect: no hop in between */
+        esp_wifi_disconnect();
+        sta_connect();
+    }
     ESP_LOGI(TAG, "connecting to '%s'", ssid);
 }
 
@@ -157,7 +218,20 @@ bool wifi_radio_start(void)
     return s_started;
 }
 
-bool wifi_busy(void)      { return s_scanning; }
+bool wifi_busy(void)
+{
+    if (s_scanning) return true;
+    if (s_connecting && esp_timer_get_time() - s_connect_us < CONNECT_CAP_US) return true;
+    return false;
+}
+bool wifi_assoc(void)     { return s_assoc || s_up; }
+void wifi_set_slow_retry(bool slow)
+{
+    if (slow == s_slow) return;
+    s_slow = slow;
+    /* a fast retry already pending: stretch it now (a slow one shortens on the next miss) */
+    if (slow && s_retry && xTimerIsTimerActive(s_retry)) retry_arm();
+}
 bool wifi_has_saved(void) { return s_have_ssid; }
 
 static void scan_task(void *arg)
@@ -181,7 +255,7 @@ static void scan_task(void *arg)
         }
     }
     s_scanning = false;
-    if (s_have_ssid) esp_wifi_connect();          /* back to the saved network, if any */
+    if (s_have_ssid) sta_connect();               /* back to the saved network, if any */
     vTaskDelete(NULL);
 }
 

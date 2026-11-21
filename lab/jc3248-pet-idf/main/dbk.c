@@ -3,7 +3,7 @@
  *
  * Nothing here touches the BLE heartbeat, OTA, Improv or voice: the radio is started through
  * wifi_radio_start() (no join without a saved network), and the channel is only changed while
- * the STA is not associated and no scan owns the radio.
+ * the STA is not associated and no scan or join owns the radio (wifi_assoc() / wifi_busy()).
  */
 #include "dbk.h"
 #include "wifi.h"
@@ -34,6 +34,8 @@ static const char *TAG = "dbk";
 #define PEER_LIVE_US  (30 * 1000000LL)    /* a pet/kit counts as "here" this long */
 #define LOG_US        (5 * 1000000LL)     /* one log line per kind per 5 s */
 #define MAX_PEERS     8
+#define BOTH_US       (10 * 1000000LL)    /* "EB" when both sources were heard this recently */
+#define PM_MAX        65535               /* a PM value outside 0..PM_MAX drops the frame */
 
 static const uint8_t BCAST[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static const uint8_t HOP[]    = { 1, 6, 11, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13 };
@@ -50,8 +52,8 @@ typedef struct {
     bool    used;
     char    id[8];
     int     pm25, pm10, pm1, band, rssi;
-    char    src;
-    int64_t t_us;
+    int64_t t_us;                         /* latest reading, any source */
+    int64_t t_e, t_b;                     /* latest ESP-NOW / BLE reading (0 = never) */
 } kit_t;
 
 typedef struct {
@@ -96,14 +98,20 @@ static const char *jval(const char *s, const char *key)
     char pat[16];
     int n = snprintf(pat, sizeof pat, "\"%s\"", key);
     if (n <= 0 || n >= (int)sizeof pat) return NULL;
-    const char *p = strstr(s, pat);
-    if (!p) return NULL;
-    p += n;
-    while (*p == ' ') p++;
-    if (*p != ':') return NULL;
-    p++;
-    while (*p == ' ') p++;
-    return p;
+    /* a key is "name" right after '{' or ',' and followed by ':' -- a string VALUE equal to a
+     * key name (a pack called "ch") is skipped, not mistaken for the key */
+    for (const char *p = strstr(s, pat); p; p = strstr(p + 1, pat)) {
+        const char *b = p;
+        while (b > s && b[-1] == ' ') b--;
+        if (b == s || (b[-1] != '{' && b[-1] != ',')) continue;
+        const char *q = p + n;
+        while (*q == ' ') q++;
+        if (*q != ':') continue;
+        q++;
+        while (*q == ' ') q++;
+        return q;
+    }
+    return NULL;
 }
 
 static bool jint(const char *s, const char *key, long *out)
@@ -137,12 +145,12 @@ static void kit_put(const char *id, int pm25, int pm10, int pm1, int band, int r
         if (s_kits[i].t_us < oldest->t_us) oldest = &s_kits[i];
     }
     if (!slot) slot = oldest;
+    if (!slot->used || strcmp(slot->id, id) != 0) { memset(slot, 0, sizeof *slot); strlcpy(slot->id, id, sizeof slot->id); }
     slot->used = true;
-    strlcpy(slot->id, id, sizeof slot->id);
     slot->pm25 = pm25; slot->pm10 = pm10; slot->pm1 = pm1;
     slot->band = (band >= 0 && band <= 2) ? band : dbk_band_of(pm25);
-    slot->rssi = rssi; slot->src = src; slot->t_us = now;
-    s_rx++;
+    slot->rssi = rssi; slot->t_us = now;
+    if (src == DBK_SRC_BLE) slot->t_b = now; else slot->t_e = now;
 }
 
 static peer_t *peer_put(const char *id, bool is_kit, const uint8_t *mac, int64_t now)
@@ -165,7 +173,7 @@ static peer_t *peer_put(const char *id, bool is_kit, const uint8_t *mac, int64_t
 /* ---- public, any task ---- */
 void dbk_on_reading(const char *id, int pm25, int pm10, int pm1, int band, int rssi, char src)
 {
-    if (!id || !id[0]) return;
+    if (!id || !id[0] || pm25 < 0 || pm25 > PM_MAX) return;
     int64_t now = esp_timer_get_time();
     portENTER_CRITICAL(&s_mux);
     kit_put(id, pm25, pm10, pm1, band, rssi, src, now);
@@ -173,7 +181,7 @@ void dbk_on_reading(const char *id, int pm25, int pm10, int pm1, int band, int r
     if (src == DBK_SRC_BLE) {
         strlcpy(s_ble_last.id, id, sizeof s_ble_last.id);
         s_ble_last.pm25 = pm25; s_ble_last.pm10 = pm10; s_ble_last.pm1 = pm1;
-        s_ble_last.band = band; s_ble_last.rssi = rssi; s_ble_last.src = src;
+        s_ble_last.band = band; s_ble_last.rssi = rssi;
         s_ble_new = true;
     }
     portEXIT_CRITICAL(&s_mux);
@@ -202,8 +210,11 @@ void dbk_view(dbk_view_t *out)
         const kit_t *k = &s_kits[i];
         if (!k->used || now - k->t_us > LIVE_US) continue;
         dbk_kit_view_t v = { .pm25 = k->pm25, .pm10 = k->pm10, .pm1 = k->pm1, .band = k->band,
-                             .rssi = k->rssi, .src = k->src, .age_us = now - k->t_us };
+                             .rssi = k->rssi, .age_us = now - k->t_us };
         strlcpy(v.id, k->id, sizeof v.id);
+        /* a stable source tag: "EB" while both are heard, so the HUD does not flip E<->B */
+        bool e = k->t_e && now - k->t_e < BOTH_US, b = k->t_b && now - k->t_b < BOTH_US;
+        strlcpy(v.src, e && b ? "EB" : e ? "E" : b ? "B" : (k->t_e > k->t_b ? "E" : "B"), sizeof v.src);
         int j = out->nkits++;                       /* insertion sort, freshest first */
         while (j > 0 && out->kit[j - 1].age_us > v.age_us) { out->kit[j] = out->kit[j - 1]; j--; }
         out->kit[j] = v;
@@ -241,8 +252,18 @@ static void on_sent(const esp_now_send_info_t *tx, esp_now_send_status_t st)
 }
 
 /* ---- task side ---- */
+static bool set_channel(int ch)
+{
+    if (ch < 1 || ch > 13) return false;
+    if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) != ESP_OK) return false;
+    s_ch = ch;
+    return true;
+}
+
 static void ensure_peer(const uint8_t mac[6])
 {
+    static uint8_t warned[4][6];                    /* "table full" once per MAC, not every 5 s */
+    static int     warned_next;
     if (esp_now_is_peer_exist(mac)) return;
     esp_now_peer_info_t p = { 0 };
     memcpy(p.peer_addr, mac, 6);
@@ -250,24 +271,32 @@ static void ensure_peer(const uint8_t mac[6])
     p.ifidx   = WIFI_IF_STA;
     p.encrypt = false;
     esp_err_t e = esp_now_add_peer(&p);
-    if (e == ESP_ERR_ESPNOW_FULL) ESP_LOGW(TAG, "peer table full (20), no unicast to " MACSTR, MAC2STR(mac));
+    if (e == ESP_ERR_ESPNOW_FULL) {
+        for (int i = 0; i < 4; i++) if (memcmp(warned[i], mac, 6) == 0) return;
+        memcpy(warned[warned_next], mac, 6);
+        warned_next = (warned_next + 1) % 4;
+        ESP_LOGW(TAG, "peer table full (20), no unicast to " MACSTR, MAC2STR(mac));
+    }
     else if (e != ESP_OK) ESP_LOGW(TAG, "add peer " MACSTR ": %s", MAC2STR(mac), esp_err_to_name(e));
 }
 
-static void handle(const rx_item_t *it, int64_t now)
+static bool pm_ok(long v) { return v >= 0 && v <= PM_MAX; }
+
+/* true = a valid "dbk" reading (the only thing that keeps the channel lock alive) */
+static bool handle(const rx_item_t *it, int64_t now)
 {
-    static int64_t log_dbk_us, log_pet_us;
+    static int64_t log_dbk_us, log_pet_us, log_ack_us;
     char t[8] = "", id[8] = "";
-    if (!jstr(it->data, "t", t, sizeof t) || !jstr(it->data, "id", id, sizeof id)) return;
+    if (!jstr(it->data, "t", t, sizeof t) || !jstr(it->data, "id", id, sizeof id) || !id[0]) return false;
     lower(id);
     long v = 0;
-    if (jint(it->data, "v", &v) && v != 1) return;
+    if (jint(it->data, "v", &v) && v != 1) return false;
 
     if (strcmp(t, "dbk") == 0) {
-        long pm25 = -1, pm10 = -1, pm1 = -1, seq = -1;
-        if (!jint(it->data, "pm25", &pm25)) return;
-        jint(it->data, "pm10", &pm10);
-        jint(it->data, "pm1", &pm1);
+        long pm25 = -1, pm10 = -1, pm1 = -1, seq = -1, kch = 0;
+        if (!jint(it->data, "pm25", &pm25) || !pm_ok(pm25)) return false;
+        if (jint(it->data, "pm10", &pm10) && !pm_ok(pm10)) return false;
+        if (jint(it->data, "pm1", &pm1) && !pm_ok(pm1)) return false;
         char band[8] = "", to[8] = "";
         jstr(it->data, "band", band, sizeof band);
         int b = !strcmp(band, "good") ? DBK_BAND_GOOD : !strcmp(band, "fair") ? DBK_BAND_FAIR
@@ -278,9 +307,18 @@ static void handle(const rx_item_t *it, int64_t now)
         kit_put(id, (int)pm25, (int)pm10, (int)pm1, b, it->rssi, DBK_SRC_ESPNOW, now);
         peer_t *p = peer_put(id, true, it->src, now);
         p->ch = it->ch;
+        s_rx++;
         portEXIT_CRITICAL(&s_mux);
 
-        if (!s_locked) ESP_LOGI(TAG, "lock ch=%d on kit %s", it->ch, id);
+        /* tune to the kit's channel: its own "ch" if it sends one, else the rx channel. A frame
+         * caught during a join scan or leaking in from an adjacent channel would otherwise lock
+         * the pet on the wrong one. Never while joined or while a scan/join owns the radio. */
+        int want = (jint(it->data, "ch", &kch) && kch >= 1 && kch <= 13) ? (int)kch : it->ch;
+        if (!wifi_assoc() && !wifi_busy() && want >= 1 && want <= 13 && want != s_ch) {
+            int was = s_ch;
+            if (set_channel(want)) ESP_LOGI(TAG, "kit %s is on ch=%d: moved from ch=%d", id, want, was);
+        }
+        if (!s_locked) ESP_LOGI(TAG, "lock ch=%d on kit %s", s_ch, id);
         s_locked = true;
 
         if (unicast && strcmp(to, s_myid) == 0 && jint(it->data, "seq", &seq)) {
@@ -288,7 +326,10 @@ static void handle(const rx_item_t *it, int64_t now)
             char ack[64];
             int n = snprintf(ack, sizeof ack, "{\"t\":\"ack\",\"v\":1,\"id\":\"%s\",\"seq\":%ld}", s_myid, seq);
             esp_err_t e = esp_now_send(it->src, (const uint8_t *)ack, n);
-            if (e != ESP_OK) ESP_LOGW(TAG, "ack seq=%ld to %s: %s", seq, id, esp_err_to_name(e));
+            if (e != ESP_OK && now - log_ack_us >= LOG_US) {
+                log_ack_us = now;
+                ESP_LOGW(TAG, "ack seq=%ld to %s: %s", seq, id, esp_err_to_name(e));
+            }
         }
         if (now - log_dbk_us >= LOG_US) {
             log_dbk_us = now;
@@ -296,8 +337,9 @@ static void handle(const rx_item_t *it, int64_t now)
                      it->ch, id, pm25, pm10, pm1, dbk_band_name(b), it->rssi,
                      unicast ? "to=" : "bcast", unicast ? to : "", seq, s_ack_ok, s_ack_ok + s_ack_fail);
         }
+        return true;
     } else if (strcmp(t, "pet") == 0) {
-        if (strcmp(id, s_myid) == 0) return;
+        if (strcmp(id, s_myid) == 0) return false;
         char name[20] = "", state[12] = "", kit[8] = "";
         long ch = 0;
         jstr(it->data, "name", name, sizeof name);
@@ -317,6 +359,7 @@ static void handle(const rx_item_t *it, int64_t now)
         }
     }
     /* "ack" frames are for kits; a pet ignores them */
+    return false;
 }
 
 static void send_status(void)
@@ -342,25 +385,32 @@ static void send_status(void)
     if (n > 0 && n < (int)sizeof f) esp_now_send(BCAST, (const uint8_t *)f, n);
 }
 
-static void set_channel(int ch)
+/* The channel the radio is really on (a scan or a join leaves it wherever it ended). */
+static int radio_channel(void)
 {
-    if (esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE) == ESP_OK) s_ch = ch;
+    uint8_t ch = 0;
+    wifi_second_chan_t sec;
+    return esp_wifi_get_channel(&ch, &sec) == ESP_OK ? ch : 0;
 }
 
+/* NOTE: this task's stack is in PSRAM (dbk_init). That is safe only while nothing here writes
+ * flash (NVS, LittleFS): the cache is off during a flash write and a PSRAM stack would crash.
+ * WiFi storage is RAM-only (wifi.c), so the WiFi / ESP-NOW calls below never write flash.
+ * Anything that must save to NVS from here has to hand off to another task first. */
 static void dbk_task(void *arg)
 {
     (void)arg;
     rx_item_t it;
     int64_t last_status = 0, dwell_start = 0, last_dbk = 0;
     int hop = 0;
-    bool assoc_shown = false;
-    if (!wifi_is_up()) set_channel(HOP[0]);
+    bool assoc_shown = false, was_busy = false, slow = false;
+    if (!wifi_assoc() && !wifi_busy()) set_channel(HOP[0]);
+    else s_ch = radio_channel();
     dwell_start = esp_timer_get_time();
     for (;;) {
         if (xQueueReceive(s_q, &it, pdMS_TO_TICKS(100)) == pdTRUE) {
-            int64_t now = esp_timer_get_time();
-            if (strstr(it.data, "\"dbk\"")) last_dbk = now;
-            handle(&it, now);
+            int64_t t = esp_timer_get_time();
+            if (handle(&it, t)) last_dbk = t;       /* only a valid dbk reading keeps the lock */
         }
         int64_t now = esp_timer_get_time();
 
@@ -378,28 +428,50 @@ static void dbk_task(void *arg)
             }
         }
 
-        /* channel: the AP's when associated (never hop), else lock on a kit or keep hopping */
-        if (wifi_is_up()) {
-            uint8_t ch = 0;
-            wifi_second_chan_t sec;
-            if (esp_wifi_get_channel(&ch, &sec) == ESP_OK) s_ch = ch;
+        /* channel: the AP's when associated (never hop), else lock on a kit or keep hopping.
+         * Never set the channel while a scan or a join owns the radio (wifi_busy()). */
+        bool busy = wifi_busy();
+        if (wifi_assoc()) {
+            int ch = radio_channel();
+            if (ch) s_ch = ch;
             s_locked = true;
             if (!assoc_shown) { ESP_LOGI(TAG, "associated: listening on AP ch=%d, no hopping", s_ch); assoc_shown = true; }
         } else {
-            assoc_shown = false;
+            if (assoc_shown) {
+                assoc_shown = false;
+                if (last_dbk == 0 || now - last_dbk > SILENCE_US) {
+                    s_locked = false;
+                    dwell_start = now;
+                    ESP_LOGI(TAG, "left the AP (ch=%d), no kit heard: hopping", s_ch);
+                }
+            }
             if (s_locked && (last_dbk == 0 || now - last_dbk > SILENCE_US)) {
                 s_locked = false;
                 dwell_start = now;
-                ESP_LOGI(TAG, "no kit for 30 s on ch=%d: hopping", s_ch);
+                if (last_dbk) ESP_LOGI(TAG, "no kit for 30 s on ch=%d: hopping", s_ch);
             }
-            if (!s_locked && !wifi_busy() && now - dwell_start >= DWELL_US) {
-                hop = (hop + 1) % (int)sizeof HOP;
-                set_channel(HOP[hop]);
-                dwell_start = now;
+            if (!busy) {
+                /* a scan or a join that just ended (or anything else) left the radio elsewhere:
+                 * put it back on our channel, so a locked pet really listens where it says */
+                int ch = radio_channel();
+                if (ch && s_ch && ch != s_ch) {
+                    int want = s_ch;
+                    if (set_channel(want) && was_busy) ESP_LOGI(TAG, "radio back on ch=%d (was ch=%d after scan/join)", want, ch);
+                }
+                if (!s_locked && now - dwell_start >= DWELL_US) {
+                    int next = (hop + 1) % (int)sizeof HOP;
+                    if (set_channel(HOP[next])) { hop = next; dwell_start = now; }   /* failed: try again next pass */
+                }
             }
         }
+        was_busy = busy;
 
-        if (now - last_status >= STATUS_US && !wifi_busy()) {
+        /* locked on a kit while not joined: retry the saved network slowly (60 s), so the join
+         * sweep does not keep pulling the radio off the kit's channel */
+        bool want_slow = s_locked && !wifi_assoc();
+        if (want_slow != slow) { slow = want_slow; wifi_set_slow_retry(slow); }
+
+        if (now - last_status >= STATUS_US && !busy) {
             last_status = now;
             send_status();
         }
@@ -416,8 +488,9 @@ void dbk_init(const char *name, const char *pack)
         snprintf(s_myid, sizeof s_myid, "%02x%02x", mac[4], mac[5]);
 
     if (!wifi_radio_start()) { ESP_LOGE(TAG, "radio did not start: DBK link off"); return; }
-    esp_wifi_set_ps(WIFI_PS_NONE);                  /* modem sleep misses broadcasts */
-    esp_err_t e = esp_now_init();
+    esp_err_t e = esp_wifi_set_ps(WIFI_PS_NONE);   /* modem sleep misses broadcasts */
+    if (e != ESP_OK) ESP_LOGW(TAG, "power save still on (%s): broadcasts will be missed", esp_err_to_name(e));
+    e = esp_now_init();
     if (e != ESP_OK) { ESP_LOGE(TAG, "esp_now_init: %s", esp_err_to_name(e)); return; }
     s_q = xQueueCreate(8, sizeof(rx_item_t));
     if (!s_q) { ESP_LOGE(TAG, "no queue"); esp_now_deinit(); return; }

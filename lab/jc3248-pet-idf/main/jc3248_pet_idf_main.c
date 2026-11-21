@@ -320,7 +320,10 @@ void app_main(void)
         wifi_init(wifi_note);
         /* DBK link v1 (esp32-oracle #32): needs the radio started, so it comes after wifi_init.
          * Starts WiFi in STA mode without joining when no network is saved. */
+        size_t heap0 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         dbk_init(ble_name, gif_ok ? gif_pack_name() : "");
+        ESP_LOGI(TAG, "DBK link: internal heap %u -> %u bytes free", (unsigned)heap0,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
 
     /* ---- STEP 7: HUD strip (overlays the bottom 80px below the frog) ----
@@ -391,8 +394,12 @@ void app_main(void)
         bool link = bleConnected();
 
         /* DBK link: the freshest kit reading on the HUD, and an air alert (set above 50, clear
-         * below 40, gone when no kit reading for 60 s). */
+         * below 40, gone when no kit reading for 60 s). The alert lifts the pet to attention only
+         * for AIR_NUDGE_US after it rises (attention also means "a prompt is waiting", so it must
+         * not sit there all night in burning season); after that the band colour carries it. */
+        #define AIR_NUDGE_US (60 * 1000000LL)
         static bool air_alert = false;
+        static int64_t air_alert_us = 0;
         {
             static int64_t air_us = 0;
             int64_t now = esp_timer_get_time();
@@ -400,21 +407,23 @@ void app_main(void)
                 air_us = now;
                 dbk_view_t dv;
                 dbk_view(&dv);
-                int worst = -1;
-                for (int i = 0; i < dv.nkits; i++) if (dv.kit[i].pm25 > worst) worst = dv.kit[i].pm25;
-                if (worst > 50) air_alert = true;
+                int worst = -1, wi = 0;
+                for (int i = 0; i < dv.nkits; i++) if (dv.kit[i].pm25 > worst) { worst = dv.kit[i].pm25; wi = i; }
+                if (worst > 50) { if (!air_alert) air_alert_us = now; air_alert = true; }   /* rising edge */
                 else if (worst < 40) air_alert = false;   /* includes "no live kit" (-1) */
                 if (hud_ok) {
                     char a[40] = "", b[40] = "";
                     uint16_t col = HUD_AIR_GOOD;
                     if (dv.nkits > 0) {
-                        const dbk_kit_view_t *k = &dv.kit[0];
+                        /* in an alert the worst kit leads, so the colour agrees with the alert */
+                        int first = air_alert ? wi : 0, second = first == 0 ? 1 : 0;
+                        const dbk_kit_view_t *k = &dv.kit[first];
                         col = k->band == DBK_BAND_GOOD ? HUD_AIR_GOOD : k->band == DBK_BAND_FAIR ? HUD_AIR_FAIR : HUD_AIR_POOR;
                         if (dv.nkits > 1)
-                            snprintf(a, sizeof a, "PM2.5 %d %s %c %.4s:%d", k->pm25, dbk_band_name(k->band), k->src,
-                                     dv.kit[1].id, dv.kit[1].pm25);
+                            snprintf(a, sizeof a, "PM2.5 %d %s %s %.4s:%d", k->pm25, dbk_band_name(k->band), k->src,
+                                     dv.kit[second].id, dv.kit[second].pm25);
                         else
-                            snprintf(a, sizeof a, "PM2.5 %d %s %c", k->pm25, dbk_band_name(k->band), k->src);
+                            snprintf(a, sizeof a, "PM2.5 %d %s %s", k->pm25, dbk_band_name(k->band), k->src);
                         snprintf(b, sizeof b, "%d pet%s  kit %s", dv.pets, dv.pets == 1 ? "" : "s", dv.kit_ok ? "ok" : "--");
                     }
                     hud_set_air(a, b, col);
@@ -429,13 +438,17 @@ void app_main(void)
             /* bad air lifts the pet to attention only when no host heartbeat in the last 60 s,
              * so it never fights the desktop's state */
             bool host_recent = last_snap_us && since < 60 * 1000000LL;
-            if (air_alert && !host_recent) act = PET_ACT_ATTENTION;
-            if (!petapp_owns_state()) gif_set_activity(act);   /* no-op unless it changed */
+            if (air_alert && !host_recent && esp_timer_get_time() - air_alert_us < AIR_NUDGE_US) act = PET_ACT_ATTENTION;
+            bool app_state = petapp_owns_state();
+            if (!app_state) gif_set_activity(act);   /* no-op unless it changed */
             if (!fresh && !petapp_owns_caption()) gif_set_who("");                          /* stale: nobody to name */
-            static int told = -1;
-            if (act != told) {
-                told = act;
-                dbk_set_state(act == PET_ACT_BUSY ? "busy" : act == PET_ACT_ATTENTION ? "attention"
+            /* status sync: tell other boards what is on screen; a pet app drives the state
+             * itself (main.c cannot read it), so report "app" then */
+            static int told = -2;
+            int tell = app_state ? -1 : act;
+            if (tell != told) {
+                told = tell;
+                dbk_set_state(tell < 0 ? "app" : act == PET_ACT_BUSY ? "busy" : act == PET_ACT_ATTENTION ? "attention"
                             : act == PET_ACT_SLEEP ? "sleep" : "idle");
             }
         }

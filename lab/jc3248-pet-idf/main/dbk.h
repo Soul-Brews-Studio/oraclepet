@@ -13,8 +13,15 @@
  * (status sync), so pet A knows pet B's state.
  *
  * Channel rules: associated to an AP -> stay on the AP channel, never hop. Not associated ->
- * dwell 5.5 s per channel, order 1,6,11,2,3,4,5,7,8,9,10,12,13; lock on the first "dbk" frame;
- * hop again after 30 s of silence. Power save off (WIFI_PS_NONE) or broadcasts are missed.
+ * dwell 5.5 s per channel, order 1,6,11,2,3,4,5,7,8,9,10,12,13; lock on the first valid "dbk"
+ * frame (tuning to the frame's "ch" if it names one); hop again after 30 s of silence. The
+ * channel is never set while a scan or a join owns the radio (wifi_busy()), and is put back
+ * when the radio comes back elsewhere. While locked and not joined, the saved network is
+ * retried every 60 s instead of 5 s. Power save off (WIFI_PS_NONE) or broadcasts are missed.
+ *
+ * BLE: a 'D','B' advert is used only once the "DBK-xxxxxx" name has been seen from that
+ * address (the BLE MAC differs from the WiFi MAC the ESP-NOW id comes from), so the kit
+ * must put its name in the advert itself (a non-connectable advert has no scan response).
  *
  * Threading: the ESP-NOW callbacks and ble.c's scan callback only copy into a queue / a table
  * under a spinlock. All parsing, sending, hopping and logging run on the "dbk" task. The main
@@ -40,7 +47,7 @@ typedef struct {
     int     pm25, pm10, pm1;
     int     band;         /* DBK_BAND_* */
     int     rssi;
-    char    src;          /* 'E' ESP-NOW, 'B' BLE (the latest one) */
+    char    src[3];       /* "E" ESP-NOW, "B" BLE, "EB" both heard in the last 10 s */
     int64_t age_us;       /* since the latest reading */
 } dbk_kit_view_t;
 
@@ -51,7 +58,7 @@ typedef struct {
     bool           kit_ok;           /* a kit heard in the last 30 s (any source) */
     int            ch;               /* current WiFi channel (0 = radio off) */
     bool           locked;           /* hopping stopped: AP channel or a kit found */
-    uint32_t       rx;               /* "dbk" frames received (both sources) */
+    uint32_t       rx;               /* valid ESP-NOW "dbk" frames received (BLE not counted) */
 } dbk_view_t;
 
 /* Start the radio (STA, no join when no network is saved), ESP-NOW and the dbk task.

@@ -302,8 +302,10 @@ static void ble_advertise(void)
 /* ---------------------------------------------------------------------------
  * DBK link v1 (dbk.h): a kit advertises manufacturer data 0xFFFF 'D','B',1, pm25/pm10/pm1
  * u16 LE, band u8, and the local name "DBK-173E5C". The name and the data may arrive in
- * different packets (advert vs scan response), so a tiny address -> id cache joins them; with
- * no name yet the id is the low 3 bytes of the BLE address. Host task: no logging here.
+ * different packets (advert vs scan response), so a tiny address -> id cache joins them. A
+ * reading is dropped until the name has been seen from that address: the BLE MAC is not the
+ * WiFi MAC the kit's ESP-NOW id comes from (base MAC + 2), so an address-derived id would show
+ * one kit as two. Host task: no logging here.
  * ------------------------------------------------------------------------- */
 #define DBK_NAMES 4
 static struct { uint8_t addr[6]; char id[8]; } s_dbk_names[DBK_NAMES];
@@ -330,7 +332,7 @@ static void dbk_scan_fields(const struct ble_hs_adv_fields *f, const uint8_t add
     id[0] = 0;
     for (int i = 0; i < DBK_NAMES; i++)
         if (memcmp(s_dbk_names[i].addr, addr, 6) == 0 && s_dbk_names[i].id[0]) strlcpy(id, s_dbk_names[i].id, sizeof id);
-    if (!id[0]) snprintf(id, sizeof id, "%02x%02x%02x", addr[2], addr[1], addr[0]);   /* addr is LE */
+    if (!id[0]) return;                          /* no "DBK-" name yet from this address */
     int pm25 = m[5] | (m[6] << 8), pm10 = m[7] | (m[8] << 8), pm1 = m[9] | (m[10] << 8);
     dbk_on_reading(id, pm25, pm10, pm1, m[11], rssi, DBK_SRC_BLE);
 }

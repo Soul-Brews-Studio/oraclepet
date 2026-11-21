@@ -186,7 +186,7 @@ void hud_draw(void)
         gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 32, l5, 2, HUD_TEXT,     GFX_TRANSPARENT);
         gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 50, l7, 2, HUD_TEXT_DIM, GFX_TRANSPARENT);
         air_one_line(a, sizeof a, text_w);
-        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 69, a, 1, s_air_col, GFX_TRANSPARENT);
+        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + HUD_H - 9, a, 1, s_air_col, GFX_TRANSPARENT);   /* 8 px glyphs, inside a 76 px strip too */
     } else if (s_air[0]) {
         /* DBK link, no usage: the reading big, peers + status small under it */
         int sc = gfx_text_width(s_air, 2) <= text_w ? 2 : 1;
