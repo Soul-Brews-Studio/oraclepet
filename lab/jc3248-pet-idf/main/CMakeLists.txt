@@ -17,6 +17,7 @@ set(PET_SRCS
 # The board layer (main/board.h): display + touch drivers per board; audio.c and the
 # rest are shared (#if PET_BOARD_LCD28 where they differ).
 list(APPEND PET_SRCS "wifi.c" "voice.c" "improv.c")   # VOICE.md: the mic over WiFi
+list(APPEND PET_SRCS "dbk.c")   # DBK link v1: PM2.5 over ESP-NOW + BLE, pet status sync (esp32-oracle #32)
 if(PET_BOARD STREQUAL "lcd28")
     list(APPEND PET_SRCS "display_ili9341.c" "touch_ft6336.c" "board_i2c.c")
     message(STATUS "pet: board = lcd28 (2.8in ILI9341 240x320, FT6336, ES8311)")

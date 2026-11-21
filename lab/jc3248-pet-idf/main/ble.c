@@ -24,6 +24,7 @@
 #include "ble.h"
 #include "improv.h"
 #include "ota.h"   /* STEP 11: firmware update service next to NUS */
+#include "dbk.h"   /* DBK link v1: the kit's 'D','B' advert rides the same scan */
 
 #include <string.h>
 #include <stdlib.h>
@@ -299,6 +300,42 @@ static void ble_advertise(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * DBK link v1 (dbk.h): a kit advertises manufacturer data 0xFFFF 'D','B',1, pm25/pm10/pm1
+ * u16 LE, band u8, and the local name "DBK-173E5C". The name and the data may arrive in
+ * different packets (advert vs scan response), so a tiny address -> id cache joins them; with
+ * no name yet the id is the low 3 bytes of the BLE address. Host task: no logging here.
+ * ------------------------------------------------------------------------- */
+#define DBK_NAMES 4
+static struct { uint8_t addr[6]; char id[8]; } s_dbk_names[DBK_NAMES];
+static int s_dbk_next;
+
+static void dbk_scan_fields(const struct ble_hs_adv_fields *f, const uint8_t addr[6], int8_t rssi)
+{
+    if (f->name && f->name_len >= 5 && f->name_len <= 12 && memcmp(f->name, "DBK-", 4) == 0) {
+        int k = -1;
+        for (int i = 0; i < DBK_NAMES; i++) if (memcmp(s_dbk_names[i].addr, addr, 6) == 0) k = i;
+        if (k < 0) { k = s_dbk_next; s_dbk_next = (s_dbk_next + 1) % DBK_NAMES; memcpy(s_dbk_names[k].addr, addr, 6); }
+        int n = f->name_len - 4;
+        if (n > 7) n = 7;
+        for (int i = 0; i < n; i++) {
+            char c = (char)f->name[4 + i];
+            s_dbk_names[k].id[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+        }
+        s_dbk_names[k].id[n] = 0;
+    }
+    if (!f->mfg_data || f->mfg_data_len < 12) return;
+    const uint8_t *m = f->mfg_data;              /* includes the 2-byte company id, LE */
+    if (m[0] != 0xFF || m[1] != 0xFF || m[2] != 'D' || m[3] != 'B' || m[4] != 1) return;
+    char id[8];
+    id[0] = 0;
+    for (int i = 0; i < DBK_NAMES; i++)
+        if (memcmp(s_dbk_names[i].addr, addr, 6) == 0 && s_dbk_names[i].id[0]) strlcpy(id, s_dbk_names[i].id, sizeof id);
+    if (!id[0]) snprintf(id, sizeof id, "%02x%02x%02x", addr[2], addr[1], addr[0]);   /* addr is LE */
+    int pm25 = m[5] | (m[6] << 8), pm10 = m[7] | (m[8] << 8), pm1 = m[9] | (m[10] << 8);
+    dbk_on_reading(id, pm25, pm10, pm1, m[11], rssi, DBK_SRC_BLE);
+}
+
+/* ---------------------------------------------------------------------------
  * Observer: scan for the host's connectionless time broadcast. The host
  * advertises a BLE local name "clk:<epoch>:<tzoff>"; we parse it off each
  * matching advertisement and stash it for blePollBroadcastTime(). Runs on the
@@ -314,6 +351,7 @@ static int gap_disc_event(struct ble_gap_event *event, void *arg)
 
     struct ble_hs_adv_fields f;
     if (ble_hs_adv_parse_fields(&f, event->disc.data, event->disc.length_data) != 0) return 0;
+    dbk_scan_fields(&f, event->disc.addr.val, event->disc.rssi);   /* DBK link: 'D','B' adverts */
     if (!f.name || f.name_len < 5) return 0;
 
     char nm[32];
@@ -348,7 +386,7 @@ static void ble_scan_start(void)
                                     /* ESPHome beacon that coexisted fine.)            */
     int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &dp, gap_disc_event, NULL);
     if (rc != 0) ESP_LOGW(TAG, "scan start failed; rc=%d — time broadcast off", rc);
-    else         ESP_LOGI(TAG, "scanning for time broadcast (clk:<epoch>:<tzoff>)");
+    else         ESP_LOGI(TAG, "scanning for time broadcast (clk:<epoch>:<tzoff>) and DBK adverts");
 }
 
 static void on_reset(int reason)

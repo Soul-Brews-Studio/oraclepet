@@ -40,11 +40,17 @@
 #include "ota.h"       /* STEP 11: firmware update over BLE */
 #include "petapp.h"    /* STEP 12: pet apps on WebAssembly */
 #include "hud_gfx.h"   /* STEP 11: the "Updating" screen */
+#include "dbk.h"       /* DBK link v1: PM2.5 from a DustBoy Kit (ESP-NOW + BLE), pet status sync */
 #ifdef CARDPUTER_PORT_SKETCH
 #include "cardputer_buddy_port.h"  /* opt-in separate Cardputer-port demo */
 #endif
 
 static const char *TAG = "jc3248-pet";
+
+/* DBK link: HUD colours for the PM2.5 bands (host RGB565) */
+#define HUD_AIR_GOOD 0x07E0   /* green  */
+#define HUD_AIR_FAIR 0xFFE0   /* yellow */
+#define HUD_AIR_POOR 0xFB00   /* orange-red */
 
 static const char *reset_reason_str(esp_reset_reason_t r)
 {
@@ -312,6 +318,9 @@ void app_main(void)
         const esp_app_desc_t *me = esp_app_get_description();
         voice_init(ble_name, me->project_name, me->version);
         wifi_init(wifi_note);
+        /* DBK link v1 (esp32-oracle #32): needs the radio started, so it comes after wifi_init.
+         * Starts WiFi in STA mode without joining when no network is saved. */
+        dbk_init(ble_name, gif_ok ? gif_pack_name() : "");
     }
 
     /* ---- STEP 7: HUD strip (overlays the bottom 80px below the frog) ----
@@ -380,10 +389,55 @@ void app_main(void)
             petapp_fleet(snap.total, snap.running, snap.waiting);
         }
         bool link = bleConnected();
+
+        /* DBK link: the freshest kit reading on the HUD, and an air alert (set above 50, clear
+         * below 40, gone when no kit reading for 60 s). */
+        static bool air_alert = false;
+        {
+            static int64_t air_us = 0;
+            int64_t now = esp_timer_get_time();
+            if (now - air_us >= 250000) {                 /* 4x a second is plenty */
+                air_us = now;
+                dbk_view_t dv;
+                dbk_view(&dv);
+                int worst = -1;
+                for (int i = 0; i < dv.nkits; i++) if (dv.kit[i].pm25 > worst) worst = dv.kit[i].pm25;
+                if (worst > 50) air_alert = true;
+                else if (worst < 40) air_alert = false;   /* includes "no live kit" (-1) */
+                if (hud_ok) {
+                    char a[40] = "", b[40] = "";
+                    uint16_t col = HUD_AIR_GOOD;
+                    if (dv.nkits > 0) {
+                        const dbk_kit_view_t *k = &dv.kit[0];
+                        col = k->band == DBK_BAND_GOOD ? HUD_AIR_GOOD : k->band == DBK_BAND_FAIR ? HUD_AIR_FAIR : HUD_AIR_POOR;
+                        if (dv.nkits > 1)
+                            snprintf(a, sizeof a, "PM2.5 %d %s %c %.4s:%d", k->pm25, dbk_band_name(k->band), k->src,
+                                     dv.kit[1].id, dv.kit[1].pm25);
+                        else
+                            snprintf(a, sizeof a, "PM2.5 %d %s %c", k->pm25, dbk_band_name(k->band), k->src);
+                        snprintf(b, sizeof b, "%d pet%s  kit %s", dv.pets, dv.pets == 1 ? "" : "s", dv.kit_ok ? "ok" : "--");
+                    }
+                    hud_set_air(a, b, col);
+                }
+            }
+        }
+
         if (gif_ok) {
-            bool fresh = link && last_snap_us && (esp_timer_get_time() - last_snap_us) < 30 * 1000000LL;
-            if (!petapp_owns_state()) gif_set_activity(fresh ? want_act : PET_ACT_IDLE);   /* no-op unless it changed */
+            int64_t since = esp_timer_get_time() - last_snap_us;
+            bool fresh = link && last_snap_us && since < 30 * 1000000LL;
+            int act = fresh ? want_act : PET_ACT_IDLE;
+            /* bad air lifts the pet to attention only when no host heartbeat in the last 60 s,
+             * so it never fights the desktop's state */
+            bool host_recent = last_snap_us && since < 60 * 1000000LL;
+            if (air_alert && !host_recent) act = PET_ACT_ATTENTION;
+            if (!petapp_owns_state()) gif_set_activity(act);   /* no-op unless it changed */
             if (!fresh && !petapp_owns_caption()) gif_set_who("");                          /* stale: nobody to name */
+            static int told = -1;
+            if (act != told) {
+                told = act;
+                dbk_set_state(act == PET_ACT_BUSY ? "busy" : act == PET_ACT_ATTENTION ? "attention"
+                            : act == PET_ACT_SLEEP ? "sleep" : "idle");
+            }
         }
         if (link != last_link) {
             last_link = link;
@@ -442,6 +496,7 @@ void app_main(void)
             if (gif_ok && ota_take_pack_request(pk, sizeof pk)) {
                 bool ok = gif_select_pack(pk);
                 if (ok && hud_ok) hud_set_name(gif_pack_name());
+                if (ok) dbk_set_pack(gif_pack_name());
                 ota_pack_result(pk, ok);
             }
         }

@@ -53,6 +53,9 @@ static char      s_name[24]   = "pet";
 static char      s_status[48] = "";
 static int       s_pct5h = -1, s_pct7d = -1;       /* usage % (-1 = none) */
 static long      s_reset5h = -1, s_reset7d = -1;   /* seconds-to-reset (-1 = none) */
+static char      s_air[40]  = "";                  /* DBK link: "PM2.5 12 good E" ("" = hidden) */
+static char      s_air2[40] = "";                  /* "2 pets kit ok" */
+static uint16_t  s_air_col  = GFX_WHITE;
 
 /* ── Public API ──────────────────────────────────────────────────────────────*/
 
@@ -113,6 +116,23 @@ void hud_set_usage(int pct5h, long reset5h, int pct7d, long reset7d)
     s_dirty = true;
 }
 
+void hud_set_air(const char *line, const char *line2, uint16_t color)
+{
+    const char *a = line ? line : "", *b = line2 ? line2 : "";
+    if (!strcmp(s_air, a) && !strcmp(s_air2, b) && s_air_col == color) return;
+    strlcpy(s_air, a, sizeof s_air);
+    strlcpy(s_air2, b, sizeof s_air2);
+    s_air_col = color;
+    s_dirty = true;
+}
+
+/* Fit "line  line2" into max_w pixels at scale 1: both if they fit, else just line. */
+static void air_one_line(char *out, size_t n, int max_w)
+{
+    snprintf(out, n, "%s  %s", s_air, s_air2);
+    if (!s_air2[0] || gfx_text_width(out, 1) > max_w) strlcpy(out, s_air, n);
+}
+
 /* A big Greek capital Psi (Ψ) brand mark, built from rects (the 8x8 font has no
  * Greek glyphs): a left + right top prong, a full-height center stem, a bowl bar
  * joining the prong feet, and a base foot. gfx_fill_rect byte-swaps internally,
@@ -157,7 +177,23 @@ void hud_draw(void)
      *    heartbeat carried usage (1:1 with pet.cpp::drawHUD: l5 white, wk dim). If no
      *    usage yet, fall back to a single status/activity line. */
     bool have_usage = (s_pct5h >= 0 || s_pct7d >= 0 || s_reset5h >= 0 || s_reset7d >= 0);
-    if (have_usage) {
+    const int text_w = HUD_W - 36 - 8 - 6 - 12;   /* x=12 up to just left of the Ψ */
+    if (s_air[0] && have_usage) {
+        /* DBK link + usage: usage moves up 2 px / 6 px, the air line goes under it at scale 1 */
+        char l5[40], l7[40], a[80];
+        fmt_window(l5, sizeof(l5), "5h", s_pct5h, s_reset5h);
+        fmt_window(l7, sizeof(l7), "wk", s_pct7d, s_reset7d);
+        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 32, l5, 2, HUD_TEXT,     GFX_TRANSPARENT);
+        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 50, l7, 2, HUD_TEXT_DIM, GFX_TRANSPARENT);
+        air_one_line(a, sizeof a, text_w);
+        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 69, a, 1, s_air_col, GFX_TRANSPARENT);
+    } else if (s_air[0]) {
+        /* DBK link, no usage: the reading big, peers + status small under it */
+        int sc = gfx_text_width(s_air, 2) <= text_w ? 2 : 1;
+        gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 34, s_air, sc, s_air_col, GFX_TRANSPARENT);
+        if (s_air2[0]) gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 55, s_air2, 1, HUD_TEXT_DIM, GFX_TRANSPARENT);
+        if (s_status[0]) gfx_text(s_fb, DISP_W, DISP_H, 12, y0 + 66, s_status, 1, HUD_TEXT_DIM, GFX_TRANSPARENT);
+    } else if (have_usage) {
         char l5[40], l7[40];
         fmt_window(l5, sizeof(l5), "5h", s_pct5h, s_reset5h);
         fmt_window(l7, sizeof(l7), "wk", s_pct7d, s_reset7d);

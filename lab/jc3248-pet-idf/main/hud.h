@@ -105,6 +105,11 @@ void hud_set_link(bool linked);
  * When any field >= 0, hud_draw shows two lines: "5h NN% Xh Ym" / "wk NN% Xd Yh". */
 void hud_set_usage(int pct5h, long reset5h, int pct7d, long reset7d);
 
+/* DBK link (dbk.h): the air-quality line, e.g. "PM2.5 12 good E", in `color`, and a small second
+ * line "2 pets  kit ok". line "" hides it. With usage present both share one scale-1 line under
+ * the usage windows; without usage the reading is drawn scale 2 where the status line was. */
+void hud_set_air(const char *line, const char *line2, uint16_t color);
+
 #ifdef __cplusplus
 }
 #endif

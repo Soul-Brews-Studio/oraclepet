@@ -17,6 +17,11 @@ const char *wifi_url(void);
  * Runs on its own task; false if one is already running. */
 typedef void (*wifi_found_cb)(const char *ssid, int rssi, int channel, bool open);
 bool        wifi_scan(wifi_found_cb found);
+/* Bring the radio up in STA mode WITHOUT joining anything when no network is saved (ESP-NOW
+ * needs a started driver). Idempotent; true once the driver is started. */
+bool        wifi_radio_start(void);
+bool        wifi_busy(void);        /* a scan owns the radio (channels hop) */
+bool        wifi_has_saved(void);   /* a network is saved: STA keeps trying to join it */
 
 #ifdef __cplusplus
 }

@@ -29,19 +29,23 @@ static bool         s_started, s_up;
 static wifi_note_cb s_note;
 static TimerHandle_t s_retry;
 static volatile bool s_scanning;               /* a scan owns the radio: no reconnects meanwhile */
+static volatile bool s_have_ssid;              /* a saved network exists: only then does STA connect */
+static bool          s_inited;                 /* netif + driver + handlers set up (once) */
 
 static void note(void)
 {
     if (s_note) s_note(s_state);
 }
 
-static void retry_cb(TimerHandle_t t) { (void)t; esp_wifi_connect(); }
+/* No saved network = no connect: the radio may be up only for ESP-NOW (dbk.c), and a connect
+ * with an empty SSID would sweep every channel and make the DBK listener miss frames. */
+static void retry_cb(TimerHandle_t t) { (void)t; if (s_have_ssid) esp_wifi_connect(); }
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        if (s_have_ssid) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *d = data;
         bool was_up = s_up;
@@ -74,21 +78,30 @@ static bool load(char *ssid, size_t ns, char *pass, size_t np)
     return ok && ssid[0];
 }
 
+/* netif + driver + event handlers + retry timer, once. Shared by connect_to(), the scan and
+ * wifi_radio_start() (ESP-NOW for the DBK link). Does not start the radio. */
+static bool radio_setup(void)
+{
+    if (s_inited) return true;
+    esp_netif_init();
+    esp_err_t e = esp_event_loop_create_default();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) { snprintf(s_state, sizeof s_state, "error: event loop"); return false; }
+    esp_netif_create_default_wifi_sta();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    if (esp_wifi_init(&cfg) != ESP_OK) { snprintf(s_state, sizeof s_state, "error: wifi init"); note(); return false; }
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);       /* the credentials live in our own NVS keys */
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    s_retry = xTimerCreate("wifi-retry", pdMS_TO_TICKS(5000), pdFALSE, NULL, retry_cb);
+    s_inited = true;
+    return true;
+}
+
 static void connect_to(const char *ssid, const char *pass)
 {
-    if (!s_started) {
-        esp_netif_init();
-        esp_err_t e = esp_event_loop_create_default();
-        if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) { snprintf(s_state, sizeof s_state, "error: event loop"); return; }
-        esp_netif_create_default_wifi_sta();
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        if (esp_wifi_init(&cfg) != ESP_OK) { snprintf(s_state, sizeof s_state, "error: wifi init"); note(); return; }
-        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
-        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
-        esp_wifi_set_storage(WIFI_STORAGE_RAM);       /* the credentials live in our own NVS keys */
-        esp_wifi_set_mode(WIFI_MODE_STA);
-        s_retry = xTimerCreate("wifi-retry", pdMS_TO_TICKS(5000), pdFALSE, NULL, retry_cb);
-    }
+    if (!radio_setup()) return;
+    s_have_ssid = true;
     wifi_config_t wc = { 0 };
     strlcpy((char *)wc.sta.ssid, ssid, sizeof wc.sta.ssid);
     strlcpy((char *)wc.sta.password, pass, sizeof wc.sta.password);
@@ -133,21 +146,19 @@ static wifi_found_cb s_found;
 
 static void ensure_started(void)
 {
-    if (s_started) return;
-    esp_netif_init();
-    esp_err_t e = esp_event_loop_create_default();
-    (void)e;
-    esp_netif_create_default_wifi_sta();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    if (esp_wifi_init(&cfg) != ESP_OK) return;
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    s_retry = xTimerCreate("wifi-retry", pdMS_TO_TICKS(5000), pdFALSE, NULL, retry_cb);
-    esp_wifi_start();
+    if (s_started || !radio_setup()) return;
+    esp_wifi_start();                             /* STA_START connects only with a saved network */
     s_started = true;
 }
+
+bool wifi_radio_start(void)
+{
+    ensure_started();
+    return s_started;
+}
+
+bool wifi_busy(void)      { return s_scanning; }
+bool wifi_has_saved(void) { return s_have_ssid; }
 
 static void scan_task(void *arg)
 {
@@ -170,7 +181,7 @@ static void scan_task(void *arg)
         }
     }
     s_scanning = false;
-    esp_wifi_connect();                           /* back to the saved network, if any */
+    if (s_have_ssid) esp_wifi_connect();          /* back to the saved network, if any */
     vTaskDelete(NULL);
 }
 
