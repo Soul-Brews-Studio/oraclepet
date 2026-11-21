@@ -1,23 +1,54 @@
+/* Hallmark · genre: atmospheric · macrostructure: Workbench (kept, tool page) · theme: custom "night bench"
+ * vibe: "cool night bench, one warm pixel lamp" · paper oklch(15% 0.02 265) · accent oklch(79% 0.155 72) amber
+ * fonts: Geist Variable + Geist Mono Variable (self-hosted) · axes: dark / geometric-sans / warm
+ * nav: kept · footer: kept · enrichment: none (the pets are the imagery)
+ * pre-emit critique: P4 H4 E4 S4 R5 V3
+ */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @import "tailwindcss";
 
 @theme {
-  --color-ink-950: #12100c;
-  --color-ink-900: #1b1812;
-  --color-ink-800: #26211a;
-  --color-ink-700: #3a3226;
-  --color-ink-400: #a89a84;
-  --color-ink-200: #d9cfbf;
-  --color-ink-50: #f4eee4;
-  --color-amber: #f0a830;
-  --color-amber-dim: #b97d1c;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* names kept so every existing class (bg-ink-900, text-amber…) picks up the new values */
+  --color-ink-950: oklch(15% 0.02 265);
+  --color-ink-900: oklch(19% 0.024 265);
+  --color-ink-800: oklch(25% 0.028 265);
+  --color-ink-700: oklch(34% 0.03 265);
+  --color-ink-400: oklch(72% 0.022 265);
+  --color-ink-200: oklch(87% 0.012 265);
+  --color-ink-50: oklch(97% 0.006 265);
+  --color-amber: oklch(79% 0.155 72);
+  --color-amber-dim: oklch(62% 0.13 70);
+  --color-focus: oklch(85% 0.14 80);
+  --color-bloom: oklch(79% 0.155 72 / 0.10);
+  --color-bloom-2: oklch(60% 0.12 265 / 0.14);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .pixel { image-rendering: pixelated; }
 
-/* Tailwind v4 resets buttons to the arrow cursor: anything clickable gets the hand again. */
 @layer base {
+  html, body { overflow-x: clip; }
+  body {
+    background-color: var(--color-ink-950);
+    /* two quiet blooms behind the page: warm lamp top-left, cool night bottom-right */
+    background-image:
+      radial-gradient(38rem 26rem at 12% -4%, var(--color-bloom), transparent 70%),
+      radial-gradient(44rem 30rem at 100% 108%, var(--color-bloom-2), transparent 70%);
+    background-attachment: fixed;
+    color: var(--color-ink-50);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { font-style: normal; letter-spacing: -0.025em; overflow-wrap: anywhere; min-width: 0; }
+  :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+  /* Tailwind v4 resets buttons to the arrow cursor: anything clickable gets the hand again. */
   button:not(:disabled), [role="button"], summary, label:has(input), select, input[type="checkbox"] { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 120ms !important; animation-duration: 120ms !important; scroll-behavior: auto !important; }
 }

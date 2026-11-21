@@ -75,24 +75,24 @@ function Hero({ packs, onPick }: { packs: Pack[]; onPick: (id: string) => void }
   return (
     <section className="grid items-center gap-10 py-14 md:grid-cols-[1.1fr_1fr]">
       <div>
-        <p className="mb-3 text-sm font-medium text-amber">Open source · ESP32-S3 · MIT</p>
-        <h1 className="text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-          A desk pet you flash from the browser.
+        <p className="mb-4 font-mono text-xs uppercase tracking-[0.14em] text-amber">Open source · ESP32-S3 · MIT</p>
+        <h1 className="text-[clamp(2.4rem,5vw+1rem,4.25rem)] font-semibold leading-[1.02] tracking-tight">
+          A desk pet you <span className="underline decoration-amber decoration-[0.08em] underline-offset-[0.14em]">flash</span> from the browser.
         </h1>
         <p className="mt-5 max-w-prose text-lg text-ink-200">
           Plug the board in once over USB. After that, firmware, characters and WebAssembly apps
           go over Bluetooth, from this page or the Mac app.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
-          <a href="#flash" className="inline-flex items-center gap-2 rounded-lg bg-amber px-5 py-3 font-medium text-ink-950 hover:bg-amber/90">
+          <a href="#flash" className="inline-flex items-center gap-2 whitespace-nowrap rounded-full bg-amber px-6 py-3 font-medium text-ink-950 transition-[background-color,box-shadow] duration-200 ease-(--ease-out) hover:bg-amber/90 hover:shadow-[0_8px_32px_-8px_var(--color-amber)] active:translate-y-px">
             <Usb className="size-4" /> Install over USB
           </a>
-          <a href="ble/" className="inline-flex items-center gap-2 rounded-lg border border-ink-700 px-5 py-3 font-medium hover:border-amber">
+          <a href="ble/" className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-ink-700 bg-ink-900/60 px-6 py-3 font-medium transition-colors duration-200 hover:border-amber active:translate-y-px">
             <Bluetooth className="size-4" /> Update over Bluetooth
           </a>
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2 rounded-2xl border border-ink-800 bg-ink-900 p-3 sm:grid-cols-5">
+      <div className="grid grid-cols-4 gap-2 rounded-3xl bg-ink-900/80 p-3 shadow-[0_24px_80px_-24px_var(--color-bloom-2)] ring-1 ring-ink-800 sm:grid-cols-5">
         {packs.slice(0, 15).map((p) => (
           <button key={p.id} type="button" onClick={() => onPick(p.id)} title={`${p.name}: show in the preview`}
             className="aspect-square overflow-hidden rounded-lg border border-transparent bg-black transition-colors hover:border-amber focus-visible:border-amber">
@@ -112,15 +112,15 @@ function Steps() {
     { icon: FileCode2, title: 'Build your own', body: 'ESP-IDF firmware, a BLE protocol with C, Python, Swift and browser libraries, and an SDK for .wasm pet apps.' },
   ]
   return (
-    <section className="grid gap-4 md:grid-cols-3">
+    <section className="grid overflow-hidden rounded-2xl bg-ink-900/70 ring-1 ring-ink-800 md:grid-cols-3">
       {items.map(({ icon: Icon, title, body }, i) => (
-        <div key={title} className="rounded-xl border border-ink-800 bg-ink-900 p-5">
-          <div className="mb-3 flex items-center gap-3">
-            <span className="grid size-8 place-items-center rounded-lg bg-ink-800 text-amber"><Icon className="size-4" /></span>
-            <span className="text-xs font-medium text-ink-400">Step {i + 1}</span>
-          </div>
-          <h3 className="font-semibold">{title}</h3>
-          <p className="mt-1.5 text-sm text-ink-400">{body}</p>
+        <div key={title} className="border-ink-800 p-6 [&:not(:first-child)]:border-t md:[&:not(:first-child)]:border-t-0 md:[&:not(:first-child)]:border-l">
+          <p className="mb-4 flex items-center gap-2 font-mono text-xs text-ink-400">
+            <span className="text-amber">{String(i + 1).padStart(2, '0')}</span>
+            <Icon className="size-3.5" aria-hidden="true" />
+          </p>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-ink-400">{body}</p>
         </div>
       ))}
     </section>
