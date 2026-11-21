@@ -22,6 +22,8 @@ webflasher/manifest-*.json
 webflasher/preview/
 build-lcd28/
 build-sc01/
+build-qemu*/
+build-qemu*.log
 
 # clangd config, per machine: tools/clangd-setup.sh writes it
 .clangd

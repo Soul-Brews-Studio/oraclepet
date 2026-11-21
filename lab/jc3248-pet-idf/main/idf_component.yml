@@ -36,3 +36,6 @@ dependencies:
   espressif/esp_codec_dev: "~1.6.2"
   ## VOICE.md: find the voice server on the LAN by itself (_oraclepet._tcp).
   espressif/mdns: "^1.8.0"
+  ## qemu board (main/board.h): Espressif QEMU's virtual RGB panel. Pulled for every build
+  ## like the lcd28 parts; only display_qemu.c calls it, so the real boards link it out.
+  espressif/esp_lcd_qemu_rgb: "^1.0.2"

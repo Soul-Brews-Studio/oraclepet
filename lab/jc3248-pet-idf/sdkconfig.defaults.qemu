@@ -1,0 +1,16 @@
+# ================================================================
+# jc3248-pet-idf — sdkconfig.defaults.qemu (PET_BOARD=qemu), applied after sdkconfig.defaults.
+# Target: Espressif QEMU, esp32s3 machine (qemu-system-xtensa -M esp32s3 -m 32M,
+#         -global driver=ssi_psram,property=is_octal,value=true for the octal PSRAM).
+# ================================================================
+
+# QEMU's -serial is UART0; the USB-Serial-JTAG console of the real board shows nothing there.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n
+
+# DIO flash: what idf.py qemu examples use; QEMU's flash model is happy with it.
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=n
+
+# QEMU runs the CPU far slower than real time in places; do not let the task WDT reboot it.
+CONFIG_ESP_TASK_WDT_PANIC=n

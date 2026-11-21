@@ -24,6 +24,9 @@ if(PET_BOARD STREQUAL "lcd28")
 elseif(PET_BOARD STREQUAL "sc01")
     list(APPEND PET_SRCS "display_st7796.c" "touch_ft6336.c" "board_i2c.c")
     message(STATUS "pet: board = sc01 (WT32-SC01 Plus: ST7796 320x480 i80, FT6336, NS4168)")
+elseif(PET_BOARD STREQUAL "qemu")
+    list(APPEND PET_SRCS "display_qemu.c" "touch_qemu.c" "qemu_demo.c")
+    message(STATUS "pet: board = qemu (Espressif QEMU virtual RGB panel 320x480, no touch/radio/audio)")
 else()
     list(APPEND PET_SRCS "display.c" "touch.c")
     message(STATUS "pet: board = jc3248 (AXS15231B 320x480)")
@@ -49,6 +52,7 @@ idf_component_register(SRCS ${PET_SRCS}
                             esp_lcd_touch      # touch driver (pulled by esp_lcd_axs15231b)
                             esp_lcd_ili9341    # lcd28: the 2.8in panel
                             esp_codec_dev      # lcd28: ES8311 codec setup
+                            esp_lcd_qemu_rgb   # qemu: Espressif QEMU's virtual RGB panel
                             esp_wifi esp_netif esp_event   # VOICE.md: WiFi for the mic stream
                             tcp_transport      # VOICE.md: WebSocket from a PSRAM-stack task
                             espressif__mdns
@@ -82,6 +86,8 @@ if(PET_BOARD STREQUAL "lcd28")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE PET_BOARD_LCD28=1)
 elseif(PET_BOARD STREQUAL "sc01")
     target_compile_definitions(${COMPONENT_LIB} PRIVATE PET_BOARD_SC01=1)
+elseif(PET_BOARD STREQUAL "qemu")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE PET_BOARD_QEMU=1)
 endif()
 
 # ── Step 5: build + flash the LittleFS asset image ───────────────────────────

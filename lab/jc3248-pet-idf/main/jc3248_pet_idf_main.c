@@ -41,6 +41,10 @@
 #include "petapp.h"    /* STEP 12: pet apps on WebAssembly */
 #include "hud_gfx.h"   /* STEP 11: the "Updating" screen */
 #include "dbk.h"       /* DBK link v1: PM2.5 from a DustBoy Kit (ESP-NOW + BLE), pet status sync */
+#if defined(PET_BOARD_QEMU)
+#include "nvs_flash.h"
+#include "qemu_demo.h" /* qemu board: demo PM2.5 feed instead of ESP-NOW/BLE */
+#endif
 #ifdef CARDPUTER_PORT_SKETCH
 #include "cardputer_buddy_port.h"  /* opt-in separate Cardputer-port demo */
 #endif
@@ -69,7 +73,7 @@ static const char *reset_reason_str(esp_reset_reason_t r)
     }
 }
 
-static void wifi_note(const char *st) { ota_wifi_note(st); improv_wifi_note(st); }   /* tell BLE hosts and Improv clients */
+static void __attribute__((unused)) wifi_note(const char *st) { ota_wifi_note(st); improv_wifi_note(st); }   /* tell BLE hosts and Improv clients */
 
 /* The pet hears you: while voice mode is inside an utterance (and 0.6 s after), the oracle-name
  * line under the cat becomes a live waveform, ~1.2 s of golden peaks scrolling left (after the
@@ -292,6 +296,22 @@ void app_main(void)
         ESP_LOGE(TAG, "gif_setup failed — leaving test pattern up");
     }
 
+#if defined(PET_BOARD_QEMU)
+    /* qemu board: no I2S codec/amp, no BT controller, no WiFi radio in QEMU. Skip audio,
+     * BLE, WiFi, voice and the DBK radio; every bleX()/audio_X() call below is inert
+     * without its init. NVS still comes up (bleInit normally does it) for petapp/OTA. */
+    {
+        esp_err_t nerr = nvs_flash_init();
+        if (nerr == ESP_ERR_NVS_NO_FREE_PAGES || nerr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            nvs_flash_erase();
+            nerr = nvs_flash_init();
+        }
+        if (nerr != ESP_OK) ESP_LOGE(TAG, "nvs_flash_init: %s", esp_err_to_name(nerr));
+    }
+    char ble_name[16] = "Claude-QEMU";
+    ESP_LOGI(TAG, "qemu board: audio, BLE, WiFi and ESP-NOW skipped; demo PM2.5 feed on");
+    qemu_demo_start();
+#else
     /* ---- STEP 8: audio (the ribbit) ----
      * Bring up the i2s_std TX channel to the always-on NS4168 amp. Non-fatal:
      * audio_init() logs + bails on failure (s_ready stays false) and every
@@ -325,6 +345,8 @@ void app_main(void)
         ESP_LOGI(TAG, "DBK link: internal heap %u -> %u bytes free", (unsigned)heap0,
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
+#endif /* PET_BOARD_QEMU */
+    (void)ble_name;
 
     /* ---- STEP 7: HUD strip (overlays the bottom 80px below the frog) ----
      * Init AFTER gif_setup so gif_bg() reflects the manifest background. */
