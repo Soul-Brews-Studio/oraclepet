@@ -25,12 +25,16 @@ claude mcp add pet-draw -- node "$PWD/pet-draw-mcp.mjs"
 ```
 
 Open the Draw page, press **Connect AI** and **Connect pet** (or **Simulated pet**), then ask the agent, for example
-*"draw a small orange fox on the pet and send it as fox"*. The first tool call opens the page if none is connected.
+*"draw a small orange fox on the pet and send it as fox"*, or *"put ~/Pictures/cat.png on the pet"*. The first tool call opens the page if none is connected.
+
+The server runs only while the agent that started it is open; the page shows "Waiting for the MCP server" until then and reconnects by itself.
+Pictures go to the page as `data:` URLs (the server reads the file or fetches the URL, 8 MB limit), so the canvas stays readable for `pet_draw_view`.
 
 | Tool | What it does |
 |---|---|
 | `pet_draw_status` | page connected, pet connected, canvas size |
-| `pet_draw` | draw ops on the canvas: `rect`, `ellipse`/`circle`, `line`, `polygon`/`polyline`, `text`, `pixels` (pixel-art rows + palette), `svg`, `fill`; `clear` starts over |
+| `pet_draw` | draw ops on the canvas: `rect`, `ellipse`/`circle`, `line`, `polygon`/`polyline`, `text`, `pixels` (pixel-art rows + palette), `svg`, `image` (a picture by `path`, `url` or `src`, fitted into a box), `fill`; `clear` starts over |
+| `pet_draw_image` | the easy way to use an existing picture: give `path` or `url`; it trims the transparent margins, fits it into the safe area (x 8..88, y 8..96) and stands it on the floor |
 | `pet_draw_view` | the canvas as a PNG; `states: true` shows all seven animations |
 | `pet_draw_undo` | undo the last draw call or stroke |
 | `pet_draw_send` | make the pack (`name`, default `drawn`) and send it to the pet |

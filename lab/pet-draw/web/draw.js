@@ -50,6 +50,42 @@ async function svgImage(svg) {
   return img;
 }
 
+async function loadImage(src) {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  return img;
+}
+
+/** The part of an image that is not (nearly) transparent: { sx, sy, sw, sh }. */
+function opaqueBox(img) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  return x1 < 0 ? { sx: 0, sy: 0, sw: w, sh: h } : { sx: x0, sy: y0, sw: x1 - x0 + 1, sh: y1 - y0 + 1 };
+}
+
+/** Where an image op lands: fitted into its box (default the safe area x 8..88, y 8..96), standing on the box floor. */
+function imagePlace(op, t) {
+  const bx = op.x ?? 8, by = op.y ?? 8, bw = op.w ?? 80, bh = op.h ?? 88;
+  const fit = op.fit ?? 'contain';
+  let dw = bw, dh = bh;
+  if (fit !== 'fill') {
+    let s = fit === 'cover' ? Math.max(bw / t.sw, bh / t.sh) : Math.min(bw / t.sw, bh / t.sh);
+    if (fit === 'none') s = 1;
+    if (op.upscale === false) s = Math.min(s, 1);
+    dw = t.sw * s; dh = t.sh * s;
+  }
+  const dx = bx + (bw - dw) / 2;
+  const dy = op.align === 'center' ? by + (bh - dh) / 2 : op.align === 'top' ? by : by + bh - dh;
+  return [Math.round(dx), Math.round(dy), Math.max(1, Math.round(dw)), Math.max(1, Math.round(dh))];
+}
+
 /** Run drawing ops (see mcp.mjs for the schema). Returns notes about ops it skipped. */
 export async function draw({ clear, ops = [] } = {}) {
   snapshot();
@@ -102,6 +138,19 @@ export async function draw({ clear, ops = [] } = {}) {
       }
       case 'svg':
         ctx.drawImage(await svgImage(op.svg), op.x ?? 0, op.y ?? 0, op.w ?? W, op.h ?? H); break;
+      case 'image': {
+        // a picture (data:/blob: URL; the MCP server turns a file path or web URL into one), fitted and trimmed
+        if (!op.src) { notes.push(`op ${n} (image): needs src (or path / url through the MCP server)`); break; }
+        const img = await loadImage(op.src);
+        const t = op.trim === false ? { sx: 0, sy: 0, sw: img.naturalWidth, sh: img.naturalHeight } : opaqueBox(img);
+        const [dx, dy, dw, dh] = imagePlace(op, t);
+        // shrinking reads best smoothed; growing pixel art stays sharp
+        ctx.imageSmoothingEnabled = op.smooth ?? (dw < t.sw || dh < t.sh);
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, t.sx, t.sy, t.sw, t.sh, dx, dy, dw, dh);
+        notes.push(`op ${n} (image): ${t.sw}x${t.sh} px of the picture drawn at x ${dx}..${dx + dw - 1}, y ${dy}..${dy + dh - 1} (${dw}x${dh})`);
+        break;
+      }
       case 'fill':
         ctx.fillStyle = op.color ?? '#000'; ctx.fillRect(0, 0, W, H); break;
       default:
@@ -320,7 +369,7 @@ function connectAI() {
   es = new EventSource(`http://127.0.0.1:${port}/events`);
   es.onopen = () => { aiStatus(true, `AI connected (127.0.0.1:${port})`); log('AI connected', 'ok'); };
   es.onerror = () => {
-    aiStatus(false, `Waiting for the MCP server on 127.0.0.1:${port}…`);
+    aiStatus(false, `Waiting for the MCP server on 127.0.0.1:${port}… (it runs while your AI agent is open)`);
     // a blocked request (local network permission, CORS) closes an EventSource for good: open a new one
     if (es?.readyState === EventSource.CLOSED) { es = null; setTimeout(() => { if (!es) connectAI(); }, 3000); }
   };

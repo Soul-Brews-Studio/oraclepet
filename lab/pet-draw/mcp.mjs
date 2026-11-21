@@ -12,8 +12,10 @@
 //      PET_DRAW_ORIGINS (more allowed origins, comma separated), PET_DRAW_WAIT (ms to wait for the page, 45000).
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { extname } from 'node:path';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const PORT = Number(process.env.PET_DRAW_PORT) || 7414;
 const PAGE = process.env.PET_DRAW_PAGE || 'https://soul-brews-studio.github.io/oraclepet/draw/';
 const ORIGINS = new Set(['https://soul-brews-studio.github.io', ...(process.env.PET_DRAW_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean)]);
@@ -115,6 +117,35 @@ async function call(tool, args, timeoutMs = 30000) {
   });
 }
 
+// ---- pictures: a file path or web URL becomes a data: URL the page can draw without tainting its canvas ----------
+const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp' };
+const MAX_IMAGE = 8 * 1024 * 1024;
+async function dataUrl({ path, url }) {
+  let bytes, type;
+  if (path) {
+    type = MIME[extname(path).toLowerCase()];
+    if (!type) throw new Error(`${path}: not a picture (png, jpg, gif, webp, svg, bmp)`);
+    bytes = await readFile(path);
+  } else {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    type = (r.headers.get('content-type') || '').split(';')[0] || MIME[extname(new URL(url).pathname).toLowerCase()];
+    if (!type?.startsWith('image/')) throw new Error(`${url}: not a picture (${type || 'unknown type'})`);
+    bytes = Buffer.from(await r.arrayBuffer());
+  }
+  if (bytes.length > MAX_IMAGE) throw new Error(`${path || url}: ${(bytes.length / 1048576).toFixed(1)} MB, the limit is 8 MB`);
+  return `data:${type};base64,${bytes.toString('base64')}`;
+}
+/** Image ops may name a local file (path) or a web URL (url): turn them into src before the page sees them. */
+async function resolveImages(args) {
+  const ops = await Promise.all((args.ops ?? []).map(async (op) => {
+    if (op?.type !== 'image' || op.src || !(op.path || op.url)) return op;
+    const { path, url, ...rest } = op;
+    return { ...rest, src: await dataUrl({ path, url }) };
+  }));
+  return { ...args, ops };
+}
+
 // ---- MCP ---------------------------------------------------------------------------------------
 const color = { type: 'string', description: 'CSS colour, e.g. "#f0a830" or "white"' };
 const num = { type: 'number' };
@@ -133,7 +164,8 @@ const TOOLS = [
       'Ops run in order. Types: rect {x,y,w,h,fill?,stroke?,width?}; ellipse/circle {cx,cy,rx,ry | r, rotate?, fill?, stroke?, width?}; ' +
       'line {x1,y1,x2,y2,stroke,width?}; polygon/polyline {points:[[x,y],...], fill?, stroke?, width?}; text {x,y,text,size?,fill?,bold?,align?}; ' +
       'pixels {x,y,rows:["..##..",...], palette:{"#":"#fff","o":"#f0a830"}, scale?} for exact pixel art ("." and " " are transparent); ' +
-      'svg {svg: "<svg viewBox=\\"0 0 96 100\\">...</svg>" or its inner elements, x?,y?,w?,h?}; fill {color} paints everything. ' +
+      'svg {svg: "<svg viewBox=\\"0 0 96 100\\">...</svg>" or its inner elements, x?,y?,w?,h?}; ' +
+      'image {path (a file on this computer) | url | src (data: URL), x?,y?,w?,h? box (default x 8, y 8, w 80, h 88), fit? contain|cover|fill|none, align? bottom|center|top, trim? (default true: drop transparent margins), smooth?} draws a picture fitted into the box, standing on its floor; fill {color} paints everything. ' +
       'Set clear (true or a colour) to start from an empty canvas. Look at the result with pet_draw_view.',
     inputSchema: {
       type: 'object',
@@ -144,7 +176,7 @@ const TOOLS = [
           items: {
             type: 'object',
             properties: {
-              type: { type: 'string', enum: ['rect', 'ellipse', 'circle', 'line', 'polygon', 'polyline', 'text', 'pixels', 'svg', 'fill'] },
+              type: { type: 'string', enum: ['rect', 'ellipse', 'circle', 'line', 'polygon', 'polyline', 'text', 'pixels', 'svg', 'image', 'fill'] },
               x: num, y: num, w: num, h: num, cx: num, cy: num, r: num, rx: num, ry: num, rotate: num,
               x1: num, y1: num, x2: num, y2: num, width: num, size: num, scale: num,
               fill: color, stroke: color, color,
@@ -153,12 +185,33 @@ const TOOLS = [
               rows: { type: 'array', items: { type: 'string' } },
               palette: { type: 'object', additionalProperties: { type: 'string' } },
               svg: { type: 'string' },
+              path: { type: 'string' }, url: { type: 'string' }, src: { type: 'string' },
+              fit: { type: 'string', enum: ['contain', 'cover', 'fill', 'none'] }, align: { type: 'string', enum: ['bottom', 'center', 'top'] },
+              trim: { type: 'boolean' }, smooth: { type: 'boolean' }, upscale: { type: 'boolean' },
             },
             required: ['type'],
           },
         },
       },
       required: ['ops'],
+    },
+  },
+  {
+    name: 'pet_draw_image',
+    description:
+      'The easy way to put an existing picture (a sprite, a photo, a PNG you made) on the pet: give a file path or a URL. ' +
+      'It clears the canvas, drops the transparent margins, fits the picture into the safe area (x 8..88, y 8..96) keeping its shape, ' +
+      'and stands it on the floor. Shrinking is smoothed, growing stays pixel-sharp. Then check it with pet_draw_view.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'a picture file on this computer (png, jpg, gif, webp, svg, bmp)' },
+        url: { type: 'string', description: 'or a picture on the web' },
+        fit: { type: 'string', enum: ['contain', 'cover', 'fill', 'none'], description: 'contain (default) keeps all of it' },
+        align: { type: 'string', enum: ['bottom', 'center', 'top'], description: 'bottom (default) stands it on the floor' },
+        background: { type: 'string', description: 'canvas colour behind it (default black)' },
+        x: num, y: num, w: num, h: num,
+      },
     },
   },
   {
@@ -191,8 +244,19 @@ async function runTool(name, args) {
   switch (name) {
     case 'pet_draw_status': return text(await call('status', {}));
     case 'pet_draw': {
-      const r = await call('draw', args);
+      const r = await call('draw', await resolveImages(args));
+      if ((r.notes ?? []).some((n) => /unknown type "image"/.test(n))) r.notes.push('The open Draw page is older than this server and skipped the picture: reload the page (Shift+Reload).');
       return text([`Drawn ${args.ops?.length ?? 0} ops.`, ...(r.notes ?? []), describe(r.bounds), 'Check it with pet_draw_view.'].filter(Boolean).join('\n'));
+    }
+    case 'pet_draw_image': {
+      if (!args.path && !args.url) throw new Error('give path (a file on this computer) or url');
+      const { path, url, background, ...place } = args;
+      const op = { type: 'image', src: await dataUrl({ path, url }), ...place };
+      const r = await call('draw', { clear: background || true, ops: [op] });
+      if ((r.notes ?? []).some((n) => /unknown type "image"/.test(n))) {
+        throw new Error('The open Draw page is older than this server and cannot draw pictures: reload the page (Shift+Reload), then try again.');
+      }
+      return text([...(r.notes ?? []), describe(r.bounds), 'Check it with pet_draw_view, then pet_draw_send.'].filter(Boolean).join('\n'));
     }
     case 'pet_draw_view': {
       const r = await call('view', args);

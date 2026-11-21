@@ -3,6 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import { writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { encodeGif, quantize } from '../web/gif.js';
 
 const W = 96, H = 100;
@@ -90,13 +94,74 @@ test('MCP server: initialize, tools/list, and a clear error with no page', async
     const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
     assert.equal(init.result.serverInfo.name, 'oraclepet-draw');
     const tools = (await rpc('tools/list', {})).result.tools.map((t) => t.name);
-    assert.deepEqual(tools, ['pet_draw_status', 'pet_draw', 'pet_draw_view', 'pet_draw_undo', 'pet_draw_send']);
+    assert.deepEqual(tools, ['pet_draw_status', 'pet_draw', 'pet_draw_image', 'pet_draw_view', 'pet_draw_undo', 'pet_draw_send']);
     const r = (await rpc('tools/call', { name: 'pet_draw_status', arguments: {} })).result;
     assert.equal(r.isError, true);
     assert.match(r.content[0].text, /No Draw page is connected/);
     const bad = await rpc('nope', {});
     assert.equal(bad.error.code, -32601);
   } finally {
+    srv.kill();
+  }
+});
+
+test('MCP server: pet_draw_image and image ops reach the page as data: URLs', async () => {
+  const PORT = 7498;
+  const dir = mkdtempSync(join(tmpdir(), 'pet-draw-'));
+  const png = join(dir, 'dot.png');
+  writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64'));
+  const srv = spawn(process.execPath, [fileURLToPath(new URL('../mcp.mjs', import.meta.url))], {
+    env: { ...process.env, PET_DRAW_OPEN: '0', PET_DRAW_PORT: String(PORT), PET_DRAW_WAIT: '5000' },
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+  let buf = '';
+  const waits = new Map();
+  srv.stdout.on('data', (c) => { buf += c; let n; while ((n = buf.indexOf('\n')) >= 0) { const m = JSON.parse(buf.slice(0, n)); buf = buf.slice(n + 1); waits.get(m.id)?.(m); } });
+  let id = 0;
+  const rpc = (method, params) => new Promise((r) => { const i = ++id; waits.set(i, r); srv.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: i, method, params })}\n`); });
+  const seen = [];
+  let sse;
+  try {
+    await rpc('initialize', { protocolVersion: '2025-06-18' });
+    // a stand-in for the Draw page: hold the event stream, answer every call
+    await new Promise((resolve, reject) => {
+      const tryConnect = (left) => {
+        const req = http.get({ host: '127.0.0.1', port: PORT, path: '/events', headers: { origin: 'http://127.0.0.1:5173' } }, (res) => {
+          sse = res; resolve();
+          let b = '';
+          res.on('data', (c) => {
+            b += c; let n;
+            while ((n = b.indexOf('\n\n')) >= 0) {
+              const ev = b.slice(0, n); b = b.slice(n + 2);
+              if (!ev.startsWith('data: ')) continue;
+              const msg = JSON.parse(ev.slice(6)); seen.push(msg);
+              const body = JSON.stringify({ id: msg.id, ok: true, result: { notes: [], bounds: { empty: true } } });
+              const post = http.request({ host: '127.0.0.1', port: PORT, path: '/result', method: 'POST', headers: { origin: 'http://127.0.0.1:5173', 'content-type': 'application/json' } });
+              post.end(body);
+            }
+          });
+        });
+        req.on('error', (e) => (left > 0 ? setTimeout(() => tryConnect(left - 1), 100) : reject(e)));
+      };
+      tryConnect(30);
+    });
+    const r1 = (await rpc('tools/call', { name: 'pet_draw_image', arguments: { path: png } })).result;
+    assert.notEqual(r1.isError, true, r1.content?.[0]?.text);
+    assert.equal(seen[0].tool, 'draw');
+    assert.equal(seen[0].args.clear, true);
+    assert.equal(seen[0].args.ops[0].type, 'image');
+    assert.match(seen[0].args.ops[0].src, /^data:image\/png;base64,iVBOR/);
+    assert.equal(seen[0].args.ops[0].path, undefined);
+    const r2 = (await rpc('tools/call', { name: 'pet_draw', arguments: { ops: [{ type: 'image', path: png, fit: 'cover' }, { type: 'rect', x: 1, y: 1, w: 2, h: 2, fill: 'red' }] } })).result;
+    assert.notEqual(r2.isError, true);
+    assert.match(seen[1].args.ops[0].src, /^data:image\/png;base64,/);
+    assert.equal(seen[1].args.ops[0].fit, 'cover');
+    assert.equal(seen[1].args.ops[1].type, 'rect');
+    const bad = (await rpc('tools/call', { name: 'pet_draw_image', arguments: { path: join(dir, 'notes.txt') } })).result;
+    assert.equal(bad.isError, true);
+    assert.match(bad.content[0].text, /not a picture/);
+  } finally {
+    sse?.destroy();
     srv.kill();
   }
 });
