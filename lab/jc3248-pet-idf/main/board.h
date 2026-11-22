@@ -13,6 +13,9 @@
  *   sc01    Panlee/Wireless-Tag WT32-SC01 Plus (ZX3D50CE08S-USRC-4832, WROVER-N16R2):
  *           320x480 ST7796UI 8-bit 8080 parallel, FT6336U touch (SDA6/SCL5), NS4168
  *           amp, 2 MB quad PSRAM, no mic. Project name oraclepet_sc01.
+ *   qemu    Espressif QEMU, esp32s3 machine: the virtual RGB panel at 320x480 (display_qemu.c),
+ *           no touch, no BLE/WiFi/ESP-NOW/audio (skipped in main.c), a demo PM2.5 feed
+ *           (qemu_demo.c). Project name oraclepet_qemu.
  *
  * Layout knobs (pixels): the cat GIF is GIF_SCALE x its 96x100 frames, placed below
  * a TOP_H clock strip and above the "who" line and a HUD_H strip at the bottom.
@@ -33,6 +36,17 @@
  * mirror image. Flip both to turn it upside down instead. */
 #define BOARD_LCD_MIRROR_X 1
 #define BOARD_LCD_MIRROR_Y 0
+#elif defined(PET_BOARD_QEMU)
+/* Same 320x480 portrait as the JC3248, so the same layout. */
+#define BOARD_NAME        "qemu"
+#define DISP_W            320
+#define DISP_H            480
+#define BOARD_GIF_SCALE   3       /* 288x300 cat */
+#define BOARD_HUD_H       80
+#define BOARD_TOP_H       0
+#define BOARD_SIG_H       0
+#define BOARD_NAME_SCALE  3
+#define BOARD_CLK_COMPACT 0
 #elif defined(PET_BOARD_SC01)
 /* Same 320x480 portrait as the JC3248, so the same layout. */
 #define BOARD_NAME        "sc01"

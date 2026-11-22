@@ -40,11 +40,21 @@
 #include "ota.h"       /* STEP 11: firmware update over BLE */
 #include "petapp.h"    /* STEP 12: pet apps on WebAssembly */
 #include "hud_gfx.h"   /* STEP 11: the "Updating" screen */
+#include "dbk.h"       /* DBK link v1: PM2.5 from a DustBoy Kit (ESP-NOW + BLE), pet status sync */
+#if defined(PET_BOARD_QEMU)
+#include "nvs_flash.h"
+#include "qemu_demo.h" /* qemu board: demo PM2.5 feed instead of ESP-NOW/BLE */
+#endif
 #ifdef CARDPUTER_PORT_SKETCH
 #include "cardputer_buddy_port.h"  /* opt-in separate Cardputer-port demo */
 #endif
 
 static const char *TAG = "jc3248-pet";
+
+/* DBK link: HUD colours for the PM2.5 bands (host RGB565) */
+#define HUD_AIR_GOOD 0x07E0   /* green  */
+#define HUD_AIR_FAIR 0xFFE0   /* yellow */
+#define HUD_AIR_POOR 0xFB00   /* orange-red */
 
 static const char *reset_reason_str(esp_reset_reason_t r)
 {
@@ -63,7 +73,7 @@ static const char *reset_reason_str(esp_reset_reason_t r)
     }
 }
 
-static void wifi_note(const char *st) { ota_wifi_note(st); improv_wifi_note(st); }   /* tell BLE hosts and Improv clients */
+static void __attribute__((unused)) wifi_note(const char *st) { ota_wifi_note(st); improv_wifi_note(st); }   /* tell BLE hosts and Improv clients */
 
 /* The pet hears you: while voice mode is inside an utterance (and 0.6 s after), the oracle-name
  * line under the cat becomes a live waveform, ~1.2 s of golden peaks scrolling left (after the
@@ -286,6 +296,22 @@ void app_main(void)
         ESP_LOGE(TAG, "gif_setup failed — leaving test pattern up");
     }
 
+#if defined(PET_BOARD_QEMU)
+    /* qemu board: no I2S codec/amp, no BT controller, no WiFi radio in QEMU. Skip audio,
+     * BLE, WiFi, voice and the DBK radio; every bleX()/audio_X() call below is inert
+     * without its init. NVS still comes up (bleInit normally does it) for petapp/OTA. */
+    {
+        esp_err_t nerr = nvs_flash_init();
+        if (nerr == ESP_ERR_NVS_NO_FREE_PAGES || nerr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            nvs_flash_erase();
+            nerr = nvs_flash_init();
+        }
+        if (nerr != ESP_OK) ESP_LOGE(TAG, "nvs_flash_init: %s", esp_err_to_name(nerr));
+    }
+    char ble_name[16] = "Claude-QEMU";
+    ESP_LOGI(TAG, "qemu board: audio, BLE, WiFi and ESP-NOW skipped; demo PM2.5 feed on");
+    qemu_demo_start();
+#else
     /* ---- STEP 8: audio (the ribbit) ----
      * Bring up the i2s_std TX channel to the always-on NS4168 amp. Non-fatal:
      * audio_init() logs + bails on failure (s_ready stays false) and every
@@ -312,7 +338,15 @@ void app_main(void)
         const esp_app_desc_t *me = esp_app_get_description();
         voice_init(ble_name, me->project_name, me->version);
         wifi_init(wifi_note);
+        /* DBK link v1 (esp32-oracle #32): needs the radio started, so it comes after wifi_init.
+         * Starts WiFi in STA mode without joining when no network is saved. */
+        size_t heap0 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        dbk_init(ble_name, gif_ok ? gif_pack_name() : "");
+        ESP_LOGI(TAG, "DBK link: internal heap %u -> %u bytes free", (unsigned)heap0,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     }
+#endif /* PET_BOARD_QEMU */
+    (void)ble_name;
 
     /* ---- STEP 7: HUD strip (overlays the bottom 80px below the frog) ----
      * Init AFTER gif_setup so gif_bg() reflects the manifest background. */
@@ -380,10 +414,65 @@ void app_main(void)
             petapp_fleet(snap.total, snap.running, snap.waiting);
         }
         bool link = bleConnected();
+
+        /* DBK link: the freshest kit reading on the HUD, and an air alert (set above 50, clear
+         * below 40, gone when no kit reading for 60 s). The alert lifts the pet to attention only
+         * for AIR_NUDGE_US after it rises (attention also means "a prompt is waiting", so it must
+         * not sit there all night in burning season); after that the band colour carries it. */
+        #define AIR_NUDGE_US (60 * 1000000LL)
+        static bool air_alert = false;
+        static int64_t air_alert_us = 0;
+        {
+            static int64_t air_us = 0;
+            int64_t now = esp_timer_get_time();
+            if (now - air_us >= 250000) {                 /* 4x a second is plenty */
+                air_us = now;
+                dbk_view_t dv;
+                dbk_view(&dv);
+                int worst = -1, wi = 0;
+                for (int i = 0; i < dv.nkits; i++) if (dv.kit[i].pm25 > worst) { worst = dv.kit[i].pm25; wi = i; }
+                if (worst > 50) { if (!air_alert) air_alert_us = now; air_alert = true; }   /* rising edge */
+                else if (worst < 40) air_alert = false;   /* includes "no live kit" (-1) */
+                if (hud_ok) {
+                    char a[40] = "", b[40] = "";
+                    uint16_t col = HUD_AIR_GOOD;
+                    if (dv.nkits > 0) {
+                        /* in an alert the worst kit leads, so the colour agrees with the alert */
+                        int first = air_alert ? wi : 0, second = first == 0 ? 1 : 0;
+                        const dbk_kit_view_t *k = &dv.kit[first];
+                        col = k->band == DBK_BAND_GOOD ? HUD_AIR_GOOD : k->band == DBK_BAND_FAIR ? HUD_AIR_FAIR : HUD_AIR_POOR;
+                        if (dv.nkits > 1)
+                            snprintf(a, sizeof a, "PM2.5 %d %s %s %.4s:%d", k->pm25, dbk_band_name(k->band), k->src,
+                                     dv.kit[second].id, dv.kit[second].pm25);
+                        else
+                            snprintf(a, sizeof a, "PM2.5 %d %s %s", k->pm25, dbk_band_name(k->band), k->src);
+                        snprintf(b, sizeof b, "%d pet%s  kit %s", dv.pets, dv.pets == 1 ? "" : "s", dv.kit_ok ? "ok" : "--");
+                    }
+                    hud_set_air(a, b, col);
+                }
+            }
+        }
+
         if (gif_ok) {
-            bool fresh = link && last_snap_us && (esp_timer_get_time() - last_snap_us) < 30 * 1000000LL;
-            if (!petapp_owns_state()) gif_set_activity(fresh ? want_act : PET_ACT_IDLE);   /* no-op unless it changed */
+            int64_t since = esp_timer_get_time() - last_snap_us;
+            bool fresh = link && last_snap_us && since < 30 * 1000000LL;
+            int act = fresh ? want_act : PET_ACT_IDLE;
+            /* bad air lifts the pet to attention only when no host heartbeat in the last 60 s,
+             * so it never fights the desktop's state */
+            bool host_recent = last_snap_us && since < 60 * 1000000LL;
+            if (air_alert && !host_recent && esp_timer_get_time() - air_alert_us < AIR_NUDGE_US) act = PET_ACT_ATTENTION;
+            bool app_state = petapp_owns_state();
+            if (!app_state) gif_set_activity(act);   /* no-op unless it changed */
             if (!fresh && !petapp_owns_caption()) gif_set_who("");                          /* stale: nobody to name */
+            /* status sync: tell other boards what is on screen; a pet app drives the state
+             * itself (main.c cannot read it), so report "app" then */
+            static int told = -2;
+            int tell = app_state ? -1 : act;
+            if (tell != told) {
+                told = tell;
+                dbk_set_state(tell < 0 ? "app" : act == PET_ACT_BUSY ? "busy" : act == PET_ACT_ATTENTION ? "attention"
+                            : act == PET_ACT_SLEEP ? "sleep" : "idle");
+            }
         }
         if (link != last_link) {
             last_link = link;
@@ -442,6 +531,7 @@ void app_main(void)
             if (gif_ok && ota_take_pack_request(pk, sizeof pk)) {
                 bool ok = gif_select_pack(pk);
                 if (ok && hud_ok) hud_set_name(gif_pack_name());
+                if (ok) dbk_set_pack(gif_pack_name());
                 ota_pack_result(pk, ok);
             }
         }
